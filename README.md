@@ -68,20 +68,22 @@ Die Lobby davor bleibt wie bisher: Erneut prüfen, Anmelden, Verbinden.
 
 ## Wenn die App mitten im Spiel schließt
 
-Punktestand und der laufende Spielstand werden im Speicher von EveryApp festgehalten (`EveryAppBridge.storage`, auf dem Gerät AsyncStorage, getrennt pro Mini-App), sobald sich im Spiel etwas ändert. Der `localStorage` des WebViews reicht dafür nicht: EveryApp lädt die Mini-App mit `source={{ html }}` und ohne `baseUrl`, also ohne stabile Origin. `localStorage` kann in derselben Sitzung noch funktionieren, übersteht aber das vollständige Schließen von EveryApp nicht.
+Punktestand und der laufende Spielstand werden im Speicher von EveryApp festgehalten (`EveryAppBridge.storage`, auf dem Gerät AsyncStorage, getrennt pro Mini-App), sobald sich im Spiel etwas ändert. Dieselben Namen werden schon in der Lobby festgehalten, sobald jemand einen Namen hinzufügt, ändert oder entfernt (`songraten.lobby.v1`). Der laufende Spielstand bleibt unter `songraten.game.v1`. Der `localStorage` des WebViews reicht dafür nicht: EveryApp lädt die Mini-App mit `source={{ html }}` und ohne `baseUrl`, also ohne stabile Origin. `localStorage` kann in derselben Sitzung noch funktionieren, übersteht aber das vollständige Schließen von EveryApp nicht.
 
-Deshalb steht **storage** in den Berechtigungen. Ist sie erteilt, öffnet der nächste Start nach einem vollständigen Schließen wieder denselben Bildschirm. Namen müssen nicht neu eingetragen werden. Fehlt die Bridge oder die Berechtigung (zum Beispiel im Browser), läuft das Spiel weiter. Der Stand wird dann nicht über einen vollständigen Neustart hinweg wiederhergestellt.
+Deshalb steht **storage** in den Berechtigungen. Ist sie erteilt und eine Runde läuft, öffnet der nächste Start nach einem vollständigen Schließen wieder denselben Bildschirm. Namen müssen nicht neu eingetragen werden. Wurden Namen nur eingetragen und das Spiel noch nicht gestartet, öffnet sich die Lobby mit genau diesen Namen. Fehlt die Bridge oder die Berechtigung (zum Beispiel im Browser), läuft das Spiel weiter. Der Stand wird dann nicht über einen vollständigen Neustart hinweg wiederhergestellt.
 
-Ein Spiel, das schon über **Spiel beenden** auf dem Endstand liegt, wird nicht als laufende Runde wieder geöffnet. „Nochmal, gleiche Namen“ startet wie bisher ein neues Spiel.
+Ein Spiel, das schon über **Spiel beenden** auf dem Endstand liegt, wird nicht als laufende Runde wieder geöffnet. **Home** und „Nochmal, gleiche Namen“ gehen zurück zur Lobby: dieselben Namen bleiben stehen, Punkte und Rundenstand sind leer. Ein späteres Öffnen zeigt diese Lobby und nicht den Endstand.
 
 Im Speicher liegen nur Spieldaten dieser Runde. Keine Spotify-Client-ID, kein Secret und kein Token.
 
 ## UX gegenüber der Rohfassung
 
-Zwei Abläufe sind gegenüber der eingefrorenen Rohfassung neu. Der Branch `roh` (Commit `6437c5dd`, Screenshots unter `roh-screenshots/`) bleibt unverändert und ist die Vergleichsbasis:
+Diese Abläufe sind gegenüber der eingefrorenen Rohfassung neu. Der Branch `roh` (Commit `6437c5dd`, Screenshots unter `roh-screenshots/`) bleibt unverändert und ist die Vergleichsbasis:
 
 - Bricht Spotify mitten im Spiel ab, gibt es **Verbinden**, ohne die Runde abzubrechen oder den Punktestand zu verwerfen.
 - Schließt sich die App mitten im Spiel oder stürzt sie ab, stellt der nächste Start den kompletten Spielstand aus dem EveryApp-Speicher wieder her und landet auf dem Bildschirm, auf dem die Runde stand. Dafür ist die Berechtigung `storage` nötig.
+- Auf dem Endstand nach **Spiel beenden** gibt es **Home**. Der Button führt zur Lobby, auf der die Namen eingetragen werden. Dieselben Namen bleiben ausgefüllt. Punkte und der Stand der beendeten Runde sind gelöscht, ein neues Spiel fängt bei null an. Ein späteres vollständiges Schließen öffnet diese Lobby und nicht die beendete Runde.
+- Mitspielernamen werden gespeichert, sobald ein Name hinzugefügt, im Feld geändert oder entfernt wird, auch bevor jemand auf **Spiel starten** tippt. Nach einem vollständigen Schließen steht die Lobby schon mit diesen Namen da. Liegt ein laufendes Spiel im Speicher, landet der Start wie bisher direkt in der Runde.
 
 Das sind gewollte Verbesserungen für den späteren Vergleich mit der Rohfassung, nicht das Verhalten von `roh`.
 
