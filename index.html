@@ -115,7 +115,12 @@
       border: 0;
       background: rgba(255, 255, 255, 0.1);
       font-size: 20px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0;
     }
+    .icon-btn svg { width: 22px; height: 22px; display: block; }
     .scores { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px; }
     .chip {
       flex: 0 0 auto;
@@ -1519,14 +1524,21 @@
         </span>`).join('')}</div>`;
     }
 
+    function homeButtonHtml() {
+      return `<button type="button" class="icon-btn" data-action="home" aria-label="Home"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" d="M4 10.5 12 4l8 6.5V20h-5.2v-6.2H9.2V20H4z"/></svg></button>`;
+    }
+
     function headerHtml() {
       const inGame = state.phase !== 'setup' && state.phase !== 'final';
+      const corner = inGame
+        ? '<button type="button" class="linkish" data-action="end">Spiel beenden</button>'
+        : state.phase === 'final' ? homeButtonHtml() : '';
       return `<header>
         <div>
           <p class="eyebrow">Partyspiel</p>
           <h1>Song raten</h1>
         </div>
-        ${inGame ? '<button type="button" class="linkish" data-action="end">Spiel beenden</button>' : ''}
+        ${corner}
       </header>`;
     }
 
@@ -1793,8 +1805,6 @@
           <p class="hint">${state.songsStarted} ${state.songsStarted === 1 ? 'Song wurde' : 'Songs wurden'} gestartet.</p>
           ${ranked.map((player, index) => `<div class="rank"><span>${index + 1}. ${esc(player.name)}</span><strong>${formatScore(player.score)}</strong></div>`).join('')}
         </section>
-        <button type="button" class="btn" data-action="again">Nochmal, gleiche Namen</button>
-        <button type="button" class="btn secondary" data-action="home">Home</button>
       </div>`;
     }
 
@@ -2141,7 +2151,6 @@
       if (action === 'end') askEnd();
       if (action === 'end-cancel') cancelEnd();
       if (action === 'end-confirm') await finishGame();
-      if (action === 'again') await returnToLobby();
       if (action === 'home') await returnToLobby();
     }
 
