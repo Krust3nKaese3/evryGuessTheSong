@@ -864,6 +864,38 @@
       }
     }
 
+    let buzzAudio = null;
+
+    function playBuzzBeep() {
+      try {
+        const Ctx = window.AudioContext || window.webkitAudioContext;
+        if (!Ctx) return;
+        if (!buzzAudio) buzzAudio = new Ctx();
+        const ctx = buzzAudio;
+        if (ctx.state === 'suspended' && typeof ctx.resume === 'function') {
+          Promise.resolve(ctx.resume()).catch(function () {});
+        }
+        const now = ctx.currentTime || 0;
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(880, now);
+        gain.gain.setValueAtTime(0.0001, now);
+        gain.gain.exponentialRampToValueAtTime(0.22, now + 0.012);
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.16);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(now);
+        osc.stop(now + 0.18);
+        osc.onended = function () {
+          try {
+            osc.disconnect();
+            gain.disconnect();
+          } catch (error) {}
+        };
+      } catch (error) {}
+    }
+
     async function withBusy(work) {
       if (state.busy) return;
       state.busy = true;
@@ -1025,6 +1057,7 @@
     async function buzz() {
       const round = state.round;
       if (!round || state.phase !== 'playing' || round.lock) return;
+      playBuzzBeep();
       round.lock = true;
       stopPoll();
       state.phase = 'guess';

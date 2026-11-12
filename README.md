@@ -38,7 +38,7 @@ Jede Runde:
 
 1. Wer das Handy hält, ist DJ. Zu Beginn jeder Runde wählt sich die Person aus der Liste und bestätigt das. Nach der Auflösung heißt es, das Handy weiterzugeben und den nächsten DJ ausdrücklich zu wählen.
 2. Der DJ sucht einen Track und tippt auf **Los**. Der Song startet von vorne. Jeder Track darf in diesem Spiel nur einmal gestartet werden.
-3. Die anderen hören über die Box und rufen „Stopp“, wenn sie den Titel kennen. Der DJ tippt sofort auf den roten Buzzer. Die Wiedergabe pausiert.
+3. Die anderen hören über die Box und rufen „Stopp“, wenn sie den Titel kennen. Der DJ tippt sofort auf den roten Buzzer. Die Wiedergabe pausiert, das Handy vibriert und piept einmal kurz.
 4. Danach wird zuerst gewählt, **wer** geraten hat (alle außer dem aktuellen DJ), und dann **Ja** oder **Nein**.
 5. Richtig: diese Person bekommt **+1**. Titel und Interpret werden aufgelöst. Danach das Handy weitergeben.
 6. Falsch: diese Person bekommt **−1**, der Song läuft an der Pausestelle weiter. Es darf wieder auf Stopp geraten werden.
@@ -62,6 +62,10 @@ Die Liste gilt nur für den aktuellen DJ. Geht das Handy weiter (der nächste DJ
 Nur der DJ schaut während der Suche aufs Handy. In den Suchergebnissen und in den Empfehlungen stehen Titel, Interpret und Album, weil der DJ den Song aussucht.
 
 Ab **Los** bis zur Auflösung (richtig, übersprungen oder nach dem Songende) zeigen Buzzer, Tipp und die Frage nach dem Songende weder Titel, Interpret, Albumname noch Cover. Empfehlungen stehen dort nicht. Der Spielerstatus aus Spotify wird auf diesen Schirmen nicht angezeigt.
+
+## Buzzer-Piepton
+
+Nur ein gültiger Tipp auf den roten Stopp-Buzzer piept. Der Ton startet im selben Moment wie die Annahme des Tipps, noch bevor Spotify fertig pausiert hat, und zusätzlich zur bestehenden Vibration (`EveryAppBridge.vibration`). Er entsteht im WebView mit der Web Audio API: ein kurzer Sinus-Oszillator mit Hüllkurve, ohne Audiodatei. Tipps, die das Spiel ignoriert (falsche Phase, Runde schon gesperrt), bleiben stumm. Andere Tasten piepen nicht. Lässt sich der Ton nicht starten, erscheint kein Fehlerhinweis; Pause und Wertung laufen weiter.
 
 ## Im Browser
 
