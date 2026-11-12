@@ -115,7 +115,12 @@
       border: 0;
       background: rgba(255, 255, 255, 0.1);
       font-size: 20px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0;
     }
+    .icon-btn svg { width: 22px; height: 22px; display: block; }
     .scores { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px; }
     .chip {
       flex: 0 0 auto;
@@ -227,10 +232,14 @@
     let recsToken = 0;
     let saveReady = false;
     let bridgeReadOk = false;
+    let lobbyReadOk = false;
+    let lobbyDirty = false;
+    let lobbyEpoch = 0;
     let booting = true;
     let saveQueue = Promise.resolve();
 
     const SAVE_KEY = 'songraten.game.v1';
+    const LOBBY_KEY = 'songraten.lobby.v1';
     const STORAGE_TIMEOUT_MS = 4000;
     const IN_GAME_PHASES = ['dj', 'search', 'playing', 'guess', 'endedAsk', 'endedWho', 'reveal'];
     const SAVE_FIELDS = [
@@ -1090,7 +1099,9 @@
       }
     }
 
-    function addPlayer() {
+    async function addPlayer() {
+      const field = document.getElementById('playerName');
+      if (field) state.draftName = field.value;
       const name = (state.draftName || '').trim().replace(/\s+/g, ' ');
       if (!name) {
         presentError('Bitte einen Namen eintragen.');
@@ -1110,12 +1121,18 @@
       state.players.push({ id: state.nextId++, name, score: 0 });
       state.draftName = '';
       state.error = '';
+      lobbyDirty = true;
+      const saved = persistLobby();
       render();
+      await saved;
     }
 
-    function removePlayer(id) {
+    async function removePlayer(id) {
       state.players = state.players.filter((player) => player.id !== id);
+      lobbyDirty = true;
+      const saved = persistLobby();
       render();
+      await saved;
     }
 
     async function startGame() {
@@ -1124,6 +1141,8 @@
         render();
         return;
       }
+      lobbyDirty = true;
+      await persistLobby();
       await withBusy(async () => {
         await ensureReady();
         state.dropNoted = false;
@@ -1434,7 +1453,11 @@
       state.phase = 'final';
       state.resumeAfterReconnect = false;
       state.dropNoted = false;
-      await persistGame();
+      lobbyDirty = true;
+      const lobbySaved = persistLobby();
+      const gameSaved = persistGame();
+      await lobbySaved;
+      await gameSaved;
       const api = spotifyApi();
       if (api) {
         try { await api.stop(); } catch (error) { presentError(error); }
@@ -1442,13 +1465,14 @@
       render();
     }
 
-    function again() {
+    async function returnToLobby() {
       state.players.forEach((player) => { player.score = 0; });
       state.phase = 'setup';
       state.djId = null;
       state.round = null;
       state.picked = null;
       state.results = [];
+      state.draftQuery = '';
       state.guesserId = null;
       state.songsStarted = 0;
       state.startedUris = [];
@@ -1461,7 +1485,12 @@
       state.resumeAfterReconnect = false;
       state.dropNoted = false;
       state.playbackGraceUntil = 0;
+      state.transportPaused = false;
+      lobbyDirty = true;
+      const lobbySaved = persistLobby();
       render();
+      await lobbySaved;
+      await persistGame();
     }
 
     function shownError() {
@@ -1495,14 +1524,21 @@
         </span>`).join('')}</div>`;
     }
 
+    function homeButtonHtml() {
+      return `<button type="button" class="icon-btn" data-action="home" aria-label="Home"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" d="M4 10.5 12 4l8 6.5V20h-5.2v-6.2H9.2V20H4z"/></svg></button>`;
+    }
+
     function headerHtml() {
       const inGame = state.phase !== 'setup' && state.phase !== 'final';
+      const corner = inGame
+        ? '<button type="button" class="linkish" data-action="end">Spiel beenden</button>'
+        : state.phase === 'final' ? homeButtonHtml() : '';
       return `<header>
         <div>
           <p class="eyebrow">Partyspiel</p>
           <h1>Song raten</h1>
         </div>
-        ${inGame ? '<button type="button" class="linkish" data-action="end">Spiel beenden</button>' : ''}
+        ${corner}
       </header>`;
     }
 
@@ -1769,7 +1805,6 @@
           <p class="hint">${state.songsStarted} ${state.songsStarted === 1 ? 'Song wurde' : 'Songs wurden'} gestartet.</p>
           ${ranked.map((player, index) => `<div class="rank"><span>${index + 1}. ${esc(player.name)}</span><strong>${formatScore(player.score)}</strong></div>`).join('')}
         </section>
-        <button type="button" class="btn" data-action="again">Nochmal, gleiche Namen</button>
       </div>`;
     }
 
@@ -1851,24 +1886,63 @@
       return JSON.stringify(snapshot);
     }
 
-    async function writeSavedRaw(raw, touchBridge) {
-      if (touchBridge !== false) {
-        const storage = persistentStore();
-        if (storage) {
-          try {
-            if (raw == null) await withTimeout(storage.remove(SAVE_KEY), STORAGE_TIMEOUT_MS);
-            else await withTimeout(storage.set(SAVE_KEY, String(raw)), STORAGE_TIMEOUT_MS);
-          } catch (error) {
-            // Bridge fehlt, storage ist nicht erlaubt, oder der Aufruf kommt nicht zurück.
-          }
-        }
-      }
+    async function writeBridgeRaw(key, raw) {
+      const storage = persistentStore();
+      if (!storage) return;
       try {
-        if (raw == null) localStorage.removeItem(SAVE_KEY);
-        else localStorage.setItem(SAVE_KEY, String(raw));
+        if (raw == null) await withTimeout(storage.remove(key), STORAGE_TIMEOUT_MS);
+        else await withTimeout(storage.set(key, String(raw)), STORAGE_TIMEOUT_MS);
       } catch (error) {
-        // localStorage kann voll oder gesperrt sein. Das laufende Spiel bleibt davon unberührt.
+        // Bridge fehlt, storage ist nicht erlaubt, oder der Aufruf kommt nicht zurück.
       }
+    }
+
+    function writeLocalRaw(key, raw) {
+      try {
+        if (raw == null) localStorage.removeItem(key);
+        else localStorage.setItem(key, String(raw));
+      } catch (error) {
+        // localStorage kann voll oder gesperrt sein. Der EveryApp-Speicher bleibt die Quelle.
+      }
+    }
+
+    async function writeSavedRaw(raw, touchBridge) {
+      if (touchBridge !== false) await writeBridgeRaw(SAVE_KEY, raw);
+      writeLocalRaw(SAVE_KEY, raw);
+    }
+
+    function lobbySnapshotRaw() {
+      return JSON.stringify({
+        v: 1,
+        players: state.players.map((player) => ({
+          id: player.id,
+          name: player.name,
+          score: 0
+        })),
+        nextId: state.nextId,
+        draftName: asText(state.draftName).slice(0, 24)
+      });
+    }
+
+    function persistLobby() {
+      if (!saveReady) return Promise.resolve();
+      const touchBridge = lobbyReadOk || lobbyDirty;
+      if (!touchBridge) return Promise.resolve();
+      let raw;
+      try {
+        raw = lobbySnapshotRaw();
+      } catch (error) {
+        return Promise.resolve();
+      }
+      lobbyReadOk = true;
+      writeLocalRaw(LOBBY_KEY, raw);
+      const epoch = ++lobbyEpoch;
+      const job = saveQueue.then(() => {
+        if (epoch !== lobbyEpoch) return null;
+        return writeBridgeRaw(LOBBY_KEY, raw);
+      });
+      saveQueue = job.then(() => {}, () => {});
+      return job.then(() => {}, () => {});
     }
 
     function persistGame() {
@@ -1910,7 +1984,71 @@
       return players.some((player) => player.id === round.djId);
     }
 
+    async function readLobbyRaw() {
+      const storage = persistentStore();
+      if (storage) {
+        try {
+          const value = await withTimeout(storage.get(LOBBY_KEY), STORAGE_TIMEOUT_MS);
+          lobbyReadOk = true;
+          if (value != null && value !== '') return value;
+        } catch (error) {
+          lobbyReadOk = false;
+        }
+      } else {
+        lobbyReadOk = false;
+      }
+      try {
+        return localStorage.getItem(LOBBY_KEY);
+      } catch (error) {
+        return null;
+      }
+    }
+
+    async function restoreLobby() {
+      let saved = null;
+      try {
+        const raw = await readLobbyRaw();
+        if (raw == null || raw === '') return false;
+        saved = parseSaved(raw);
+      } catch (error) {
+        return false;
+      }
+      if (!saved || typeof saved !== 'object' || saved.v !== 1 || inGamePhase(saved.phase)) return false;
+      const players = restorePlayers(saved.players).map((player) => ({
+        id: player.id,
+        name: player.name,
+        score: 0
+      }));
+      state.players = players;
+      const maxId = players.reduce((max, player) => Math.max(max, player.id), 0);
+      state.nextId = Math.max(Number(saved.nextId) || 1, maxId + 1);
+      state.draftName = asText(saved.draftName).slice(0, 24);
+      state.phase = 'setup';
+      state.djId = null;
+      state.round = null;
+      state.picked = null;
+      state.results = [];
+      state.guesserId = null;
+      state.songsStarted = 0;
+      state.startedUris = [];
+      state.shownRecommendationUris = [];
+      state.confirmEnd = false;
+      state.resumeAfterReconnect = false;
+      return true;
+    }
+
     async function restoreGame() {
+      let restored = false;
+      try {
+        restored = await restoreInProgress();
+      } catch (error) {
+        restored = false;
+      }
+      if (!restored) await restoreLobby();
+      return restored;
+    }
+
+    async function restoreInProgress() {
       let saved = null;
       try {
         const bridgeResult = await readBridgeValue();
@@ -1968,12 +2106,12 @@
       return true;
     }
 
-    function onClick(event) {
+    async function onClick(event) {
       const button = event.target.closest('[data-action]');
       if (!button || button.disabled) return;
       const action = button.dataset.action;
-      if (action === 'remove-player') removePlayer(Number(button.dataset.id));
-      if (action === 'start') startGame();
+      if (action === 'remove-player') await removePlayer(Number(button.dataset.id));
+      if (action === 'start') await startGame();
       if (action === 'reconnect') withBusy(reconnectInGame);
       if (action === 'refresh') withBusy(loadSpotifyStatus);
       if (action === 'login') withBusy(async () => { await requireClient(); await requireApi().login(); await loadSpotifyStatus(); state.info = 'Anmeldung abgeschlossen.'; });
@@ -2012,8 +2150,8 @@
       if (action === 'next-dj') nextDj();
       if (action === 'end') askEnd();
       if (action === 'end-cancel') cancelEnd();
-      if (action === 'end-confirm') finishGame();
-      if (action === 'again') again();
+      if (action === 'end-confirm') await finishGame();
+      if (action === 'home') await returnToLobby();
     }
 
     function bind() {
@@ -2026,7 +2164,11 @@
         if (form.dataset.action === 'search') runSearch();
       });
       app.addEventListener('input', (event) => {
-        if (event.target.id === 'playerName') state.draftName = event.target.value;
+        if (event.target.id === 'playerName') {
+          state.draftName = event.target.value;
+          lobbyDirty = true;
+          persistLobby();
+        }
         if (event.target.id === 'searchQuery') {
           state.draftQuery = event.target.value;
           persistGame();
@@ -2079,9 +2221,12 @@
     async function init() {
       bind();
       subscribe();
-      window.addEventListener('pagehide', () => { persistGame(); });
+      window.addEventListener('pagehide', () => { persistGame(); persistLobby(); });
       document.addEventListener('visibilitychange', () => {
-        if (document.visibilityState === 'hidden') persistGame();
+        if (document.visibilityState === 'hidden') {
+          persistGame();
+          persistLobby();
+        }
       });
       try {
         await restoreGame();
