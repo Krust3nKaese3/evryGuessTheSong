@@ -1,0 +1,1230 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#1a0d12">
+  <title>Song raten</title>
+  <style>
+    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    html, body { margin: 0; min-height: 100%; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background: #14080c;
+      color: #fff8f4;
+      padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+    }
+    [hidden] { display: none !important; }
+    button, input { font: inherit; color: inherit; }
+    button { touch-action: manipulation; cursor: pointer; }
+    button:disabled { opacity: 0.45; cursor: not-allowed; }
+    #app { max-width: 520px; margin: 0 auto; min-height: 100vh; padding: 16px 16px 28px; }
+    header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
+    h1 { font-size: 30px; line-height: 1.1; margin: 0; }
+    h2 { font-size: 22px; line-height: 1.2; margin: 0 0 8px; }
+    p { margin: 0; }
+    .eyebrow { margin: 0 0 4px; letter-spacing: 0.08em; text-transform: uppercase; font-size: 12px; color: #ffb089; font-weight: 700; }
+    .lead, .hint { color: #f0d2c8; line-height: 1.45; }
+    .hint { font-size: 15px; }
+    .stack { display: flex; flex-direction: column; gap: 12px; }
+    .card {
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 18px;
+      padding: 14px;
+    }
+    .banner {
+      border-radius: 14px;
+      padding: 12px 14px;
+      line-height: 1.4;
+      font-weight: 650;
+    }
+    .banner.error { background: #ffd8d2; color: #4d100c; }
+    .banner.info { background: #d9ffe8; color: #07321c; }
+    .banner.warn { background: #ffe08a; color: #332000; }
+    .row { display: flex; gap: 8px; }
+    .row > * { flex: 1; }
+    input[type="text"] {
+      width: 100%;
+      min-height: 52px;
+      border-radius: 14px;
+      border: 1px solid rgba(255, 255, 255, 0.16);
+      background: #2a1218;
+      padding: 0 14px;
+      font-size: 17px;
+    }
+    .btn {
+      min-height: 56px;
+      border: 0;
+      border-radius: 16px;
+      padding: 14px 16px;
+      background: #fff4ec;
+      color: #2a1014;
+      font-size: 18px;
+      font-weight: 800;
+    }
+    .btn:active { transform: scale(0.98); }
+    .btn.secondary { background: transparent; color: #fff8f4; border: 2px solid rgba(255, 255, 255, 0.28); }
+    .btn.ghost { background: rgba(255, 255, 255, 0.08); color: #fff8f4; min-height: 48px; font-size: 16px; }
+    .btn.good { background: #b6f5cf; color: #06341c; }
+    .btn.bad { background: #ffd0c8; color: #4d100c; }
+    .btn:disabled { opacity: 1; background: #3a2a30; color: #b9a39c; }
+    .btn.small { min-height: 44px; padding: 8px 12px; font-size: 15px; }
+    .linkish {
+      background: transparent;
+      border: 0;
+      color: #ffb089;
+      min-height: 44px;
+      font-weight: 700;
+      padding: 8px;
+    }
+    .player, .track, .choice {
+      width: 100%;
+      text-align: left;
+      min-height: 60px;
+      border-radius: 16px;
+      border: 2px solid rgba(255, 255, 255, 0.1);
+      background: rgba(255, 255, 255, 0.05);
+      padding: 12px 14px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+    .choice.selected, .track.selected { border-color: #ffb089; background: rgba(255, 176, 137, 0.14); }
+    .player-name, .track-title { font-size: 18px; font-weight: 800; }
+    .track-meta { display: block; color: #f0d2c8; font-size: 14px; font-weight: 600; margin-top: 2px; }
+    .icon-btn {
+      width: 48px;
+      height: 48px;
+      flex: 0 0 48px;
+      border-radius: 14px;
+      border: 0;
+      background: rgba(255, 255, 255, 0.1);
+      font-size: 20px;
+    }
+    .scores { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px; }
+    .chip {
+      flex: 0 0 auto;
+      background: rgba(255, 255, 255, 0.08);
+      border-radius: 999px;
+      padding: 8px 12px;
+      display: flex;
+      gap: 6px;
+      align-items: center;
+      font-size: 15px;
+    }
+    .chip.is-dj { outline: 2px solid #ffb089; }
+    .chip-score { font-weight: 800; }
+    .chip-role { font-size: 11px; letter-spacing: 0.06em; color: #ffb089; font-weight: 800; }
+    .stage { min-height: 46vh; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; text-align: center; }
+    .eq { display: flex; align-items: flex-end; gap: 6px; height: 36px; }
+    .eq span {
+      width: 8px;
+      height: 12px;
+      border-radius: 99px;
+      background: #ffb089;
+      animation: bounce 0.9s ease-in-out infinite;
+    }
+    .eq span:nth-child(2) { animation-delay: 0.15s; }
+    .eq span:nth-child(3) { animation-delay: 0.3s; }
+    .eq span:nth-child(4) { animation-delay: 0.45s; }
+    @keyframes bounce {
+      0%, 100% { height: 10px; }
+      50% { height: 34px; }
+    }
+    .buzzer {
+      width: min(78vw, 320px);
+      height: min(78vw, 320px);
+      border-radius: 50%;
+      border: 8px solid #ffd2cc;
+      background: radial-gradient(circle at 35% 30%, #ff6d62, #e10600 46%, #7a0010);
+      color: white;
+      font-size: 44px;
+      font-weight: 900;
+      letter-spacing: 0.04em;
+      box-shadow: 0 12px 0 #5c0010, 0 18px 28px rgba(0, 0, 0, 0.4);
+      user-select: none;
+    }
+    .buzzer:active { transform: translateY(8px); box-shadow: 0 4px 0 #5c0010; }
+    .reveal-title { font-size: 34px; line-height: 1.15; margin: 0; overflow-wrap: anywhere; }
+    .reveal-artist { font-size: 22px; color: #ffb089; margin-top: 6px; overflow-wrap: anywhere; }
+    .rank { display: flex; justify-content: space-between; gap: 12px; padding: 12px 0; border-bottom: 1px solid rgba(255, 255, 255, 0.08); font-size: 18px; }
+    .rank strong { font-size: 22px; }
+    details { color: #f0d2c8; }
+    summary { min-height: 44px; display: flex; align-items: center; font-weight: 800; color: #fff8f4; }
+    ol { margin: 8px 0 0; padding-left: 18px; }
+    li { margin: 6px 0; }
+    .modal {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.62);
+      display: flex;
+      align-items: flex-end;
+      justify-content: center;
+      padding: 16px;
+      padding-bottom: calc(16px + env(safe-area-inset-bottom));
+      z-index: 5;
+    }
+    .modal .card { width: min(520px, 100%); }
+    @media (prefers-reduced-motion: reduce) {
+      .eq span { animation: none; height: 18px; }
+    }
+  </style>
+</head>
+<body>
+  <div id="app"></div>
+  <script>
+    const NO_CLIENT_ID = 'Keine Spotify Client ID hinterlegt. Bitte in den EveryApp-Einstellungen eintragen.';
+    const NOT_INSTALLED = 'Spotify ist nicht installiert. Bitte die Spotify-App aus dem Play Store installieren und dich dort anmelden.';
+    const NOT_PREMIUM = 'Dieser Spotify-Account hat kein Premium. Einen bestimmten Song abspielen geht nur mit Premium.';
+
+    const state = {
+      phase: 'setup',
+      players: [],
+      nextId: 1,
+      djId: null,
+      round: null,
+      picked: null,
+      results: [],
+      draftName: '',
+      draftQuery: '',
+      guesserId: null,
+      error: '',
+      info: '',
+      notice: '',
+      busy: false,
+      confirmEnd: false,
+      transportPaused: false,
+      songsStarted: 0,
+      spotify: { client: null, availability: null }
+    };
+
+    const app = document.getElementById('app');
+
+    function bridge() {
+      return window.EveryAppBridge || null;
+    }
+
+    function spotifyApi() {
+      const api = bridge();
+      return api && api.spotify ? api.spotify : null;
+    }
+
+    function esc(value) {
+      return String(value ?? '').replace(/[&<>"']/g, (ch) => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+      }[ch]));
+    }
+
+    function errText(error) {
+      if (!error) return 'Unbekannter Fehler';
+      if (typeof error === 'string') return error;
+      if (error.message) return String(error.message);
+      try { return JSON.stringify(error); } catch (e) { return String(error); }
+    }
+
+    function presentError(error) {
+      const text = errText(error);
+      if (text.indexOf(NO_CLIENT_ID) !== -1) {
+        state.error = NO_CLIENT_ID + ' Trag sie in EveryApp auf dem Startbildschirm unter Spotify ein. Dieses Spiel speichert keine Client ID.';
+        return;
+      }
+      if (text.indexOf('nächsten Build') !== -1 || text.indexOf('natives Modul') !== -1) {
+        state.error = text + ' Bitte den SrvEveryApp- oder EveryApp-Build verwenden, der die Spotify-Bridge bereits enthält.';
+        return;
+      }
+      state.error = text;
+    }
+
+    function requireApi() {
+      const api = spotifyApi();
+      if (api) return api;
+      if (!bridge()) {
+        throw new Error('Song raten braucht EveryApp und Spotify. Im normalen Browser gibt es keine Spotify-Bridge und keinen Ton.');
+      }
+      throw new Error('Diese EveryApp-Version enthält die Spotify-Bridge nicht. Bitte den SrvEveryApp- oder EveryApp-Build verwenden, der sie bereits enthält.');
+    }
+
+    async function requireClient() {
+      const info = await requireApi().getClientId();
+      state.spotify.client = info || null;
+      if (!info || info.source === 'none' || !info.clientId) throw new Error(NO_CLIENT_ID);
+      return info;
+    }
+
+    async function loadSpotifyStatus() {
+      const api = requireApi();
+      const client = await api.getClientId();
+      state.spotify.client = client || null;
+      state.spotify.availability = await api.isAvailable();
+      const missing = !client || client.source === 'none' || !client.clientId;
+      if (missing) presentError(NO_CLIENT_ID);
+    }
+
+    async function ensureReady() {
+      const api = requireApi();
+      await requireClient();
+      let status = await api.isAvailable();
+      state.spotify.availability = status;
+      if (!status.installed) throw new Error(NOT_INSTALLED);
+      if (!status.authorized) {
+        await api.login();
+        status = await api.isAvailable();
+        state.spotify.availability = status;
+      }
+      if (!status.connected) {
+        await api.connect();
+        status = await api.isAvailable();
+        state.spotify.availability = status;
+      }
+      if (!status.installed) throw new Error(NOT_INSTALLED);
+      if (status.premium === false) throw new Error(NOT_PREMIUM);
+      return status;
+    }
+
+    function playerById(id) {
+      return state.players.find((player) => player.id === id) || null;
+    }
+
+    function currentDjId() {
+      if (state.round && state.round.djId) return state.round.djId;
+      return state.djId;
+    }
+
+    function sameTrack(a, b) {
+      if (!a || !b) return false;
+      if (a === b) return true;
+      const id = (uri) => {
+        const match = String(uri).match(/spotify:track:([A-Za-z0-9]+)/);
+        return match ? match[1] : '';
+      };
+      const left = id(a);
+      const right = id(b);
+      return Boolean(left && left === right);
+    }
+
+    function artistLine(item) {
+      if (!item) return '';
+      if (Array.isArray(item.artists) && item.artists.length) {
+        return item.artists.map((artist) => artist && (artist.name || artist)).filter(Boolean).join(', ');
+      }
+      if (typeof item.artist === 'string') return item.artist;
+      return '';
+    }
+
+    function normalizeState(raw) {
+      let value = raw;
+      if (typeof value === 'string') {
+        try { value = JSON.parse(value); } catch (e) { return null; }
+      }
+      if (!value || typeof value !== 'object') return null;
+      const track = value.track && typeof value.track === 'object' ? value.track : null;
+      return {
+        paused: Boolean(value.paused),
+        positionMs: Number(value.positionMs) || 0,
+        playbackSpeed: Number(value.playbackSpeed),
+        track: track ? {
+          uri: track.uri || '',
+          durationMs: Number(track.durationMs) || 0
+        } : null
+      };
+    }
+
+    function normalizeTracks(found) {
+      let items = [];
+      if (found && found.tracks && Array.isArray(found.tracks.items)) items = found.tracks.items;
+      else if (found && Array.isArray(found.tracks)) items = found.tracks;
+      return items.map((item) => ({
+        uri: item.uri,
+        title: item.name || 'Unbekannter Titel',
+        artist: artistLine(item) || 'Unbekannter Interpret',
+        album: typeof item.album === 'string' ? item.album : (item.album && item.album.name) || '',
+        durationMs: Number(item.durationMs || item.duration_ms) || 0
+      })).filter((item) => item.uri && String(item.uri).indexOf('spotify:track:') === 0);
+    }
+
+    function formatMs(ms) {
+      const total = Math.round((Number(ms) || 0) / 1000);
+      if (!total) return '';
+      return Math.floor(total / 60) + ':' + String(total % 60).padStart(2, '0');
+    }
+
+    function formatScore(score) {
+      if (score > 0) return '+' + score;
+      if (score < 0) return '−' + Math.abs(score);
+      return '0';
+    }
+
+    function endedByPosition(positionMs, durationMs, snapshot) {
+      const duration = Number(durationMs) || 0;
+      const position = Number(positionMs) || 0;
+      if (duration < 1500) return false;
+      if (position < Math.min(1200, duration * 0.5)) return false;
+      if (position >= duration - 500) return true;
+      const stopped = snapshot.paused || snapshot.playbackSpeed === 0;
+      return stopped && position >= duration - 2000 && position >= duration * 0.9;
+    }
+
+    function stopPoll() {
+      if (state.pollTimer) {
+        clearInterval(state.pollTimer);
+        state.pollTimer = null;
+      }
+    }
+
+    function startPoll() {
+      stopPoll();
+      state.pollTimer = setInterval(() => { poll(); }, 1200);
+    }
+
+    async function poll() {
+      const round = state.round;
+      if (!round || round.lock || state.phase !== 'playing' || !spotifyApi()) return;
+      try {
+        const snapshot = normalizeState(await spotifyApi().getPlayerState());
+        if (snapshot) onPlayer(snapshot);
+      } catch (error) {
+        const text = errText(error);
+        if (state.error !== text) presentError(error);
+        paintBanners();
+      }
+      if (round && !round.seenOwnTrack && !round.lock && !round.unconfirmed && Date.now() - round.startedAt > 8000) {
+        round.unconfirmed = true;
+        if (state.phase === 'playing') render();
+      }
+    }
+
+    function onPlayer(raw) {
+      const snapshot = normalizeState(raw);
+      if (!snapshot || state.phase !== 'playing') return;
+      if (considerPlayback(snapshot)) return;
+      state.transportPaused = snapshot.paused;
+      paintTransport();
+    }
+
+    function considerPlayback(snapshot) {
+      const round = state.round;
+      if (!round || round.lock || state.phase !== 'playing' || !snapshot) return false;
+      const uri = snapshot.track && snapshot.track.uri;
+      const duration = (snapshot.track && snapshot.track.durationMs) || round.durationMs || 0;
+      if (duration && !round.durationMs) round.durationMs = duration;
+      const ours = Boolean(uri && sameTrack(uri, round.uri));
+      // Ignore the first moments. A stale player event can still show the previous track,
+      // or the same track sitting at its old ending, before play() settles at position 0.
+      if (Date.now() - round.startedAt < 2000) {
+        if (ours && snapshot.positionMs < 5000) {
+          round.seenOwnTrack = true;
+          round.unconfirmed = false;
+          if (snapshot.positionMs > (round.highPos || 0)) round.highPos = snapshot.positionMs;
+        }
+        return false;
+      }
+      if (ours) {
+        round.seenOwnTrack = true;
+        round.unconfirmed = false;
+        if (snapshot.positionMs > (round.highPos || 0)) round.highPos = snapshot.positionMs;
+        const knownDuration = round.durationMs || duration;
+        if (endedByPosition(snapshot.positionMs, knownDuration, snapshot)) {
+          resolveNaturalEnd();
+          return true;
+        }
+        if (knownDuration > 15000 && round.highPos > knownDuration * 0.85 && snapshot.positionMs + 5000 < round.highPos) {
+          resolveNaturalEnd();
+          return true;
+        }
+        return false;
+      }
+      if (!uri && round.seenOwnTrack && snapshot.paused && round.durationMs && round.highPos >= round.durationMs - 2000) {
+        resolveNaturalEnd();
+        return true;
+      }
+      if (round.seenOwnTrack && uri && !sameTrack(uri, round.uri)) {
+        resolveNaturalEnd();
+        return true;
+      }
+      return false;
+    }
+
+    async function resolveNaturalEnd() {
+      const round = state.round;
+      if (!round || round.lock || state.phase !== 'playing') return;
+      round.lock = true;
+      stopPoll();
+      state.phase = 'endedAsk';
+      state.notice = '';
+      render();
+      try {
+        await requireApi().pause();
+      } catch (error) {
+        presentError(error);
+        paintBanners();
+      }
+    }
+
+    function paintBanners() {
+      const error = document.getElementById('errorBanner');
+      if (error) {
+        error.hidden = !state.error;
+        error.textContent = state.error || '';
+      }
+    }
+
+    function paintTransport() {
+      const el = document.getElementById('playState');
+      if (el) {
+        el.textContent = state.transportPaused
+          ? 'Die Wiedergabe ist pausiert. Titel und Interpret bleiben verdeckt.'
+          : 'Der Song läuft über die Box. Titel und Interpret bleiben verdeckt.';
+      }
+      const resume = document.getElementById('resumeBtn');
+      if (resume) resume.hidden = !state.transportPaused;
+      const box = document.getElementById('unconfirmed');
+      if (box && state.round) box.hidden = !state.round.unconfirmed;
+    }
+
+    function buzzHaptic() {
+      const api = bridge();
+      if (!api || !api.vibration || !api.vibration.vibrate) return;
+      try {
+        api.vibration.vibrate([20, 30, 50]);
+      } catch (error) {
+        presentError('Vibration fehlgeschlagen: ' + errText(error));
+        paintBanners();
+      }
+    }
+
+    async function withBusy(work) {
+      if (state.busy) return;
+      state.busy = true;
+      state.error = '';
+      render();
+      try {
+        await work();
+      } catch (error) {
+        presentError(error);
+      } finally {
+        state.busy = false;
+        render();
+      }
+    }
+
+    function addPlayer() {
+      const name = (state.draftName || '').trim().replace(/\s+/g, ' ');
+      if (!name) {
+        presentError('Bitte einen Namen eintragen.');
+        render();
+        return;
+      }
+      if (name.length > 24) {
+        presentError('Der Name ist zu lang (höchstens 24 Zeichen).');
+        render();
+        return;
+      }
+      if (state.players.some((player) => player.name.toLowerCase() === name.toLowerCase())) {
+        presentError('Diesen Namen gibt es schon. Nimm zum Beispiel einen Zusatz.');
+        render();
+        return;
+      }
+      state.players.push({ id: state.nextId++, name, score: 0 });
+      state.draftName = '';
+      state.error = '';
+      render();
+    }
+
+    function removePlayer(id) {
+      state.players = state.players.filter((player) => player.id !== id);
+      render();
+    }
+
+    async function startGame() {
+      if (state.players.length < 2) {
+        presentError('Mindestens zwei Personen. Sonst kann außer dem DJ niemand raten.');
+        render();
+        return;
+      }
+      await withBusy(async () => {
+        await ensureReady();
+        state.phase = 'dj';
+        state.djId = null;
+        state.round = null;
+        state.info = 'Wer das Handy hält, ist der DJ und sucht den Song aus.';
+      });
+    }
+
+    function selectDj(id) {
+      if (!playerById(id)) return;
+      state.djId = id;
+      render();
+    }
+
+    function confirmDj() {
+      if (!playerById(state.djId)) {
+        presentError('Bitte zuerst auswählen, wer DJ ist.');
+        render();
+        return;
+      }
+      state.picked = null;
+      state.results = [];
+      state.draftQuery = '';
+      state.phase = 'search';
+      state.error = '';
+      state.info = 'Nur der DJ schaut auf diese Seite. Hier stehen Titel und Interpret.';
+      render();
+    }
+
+    async function runSearch() {
+      const query = (state.draftQuery || '').trim();
+      if (!query) {
+        presentError('Suchbegriff fehlt.');
+        render();
+        return;
+      }
+      await withBusy(async () => {
+        await ensureReady();
+        const found = await requireApi().search(query, { types: ['track'], limit: 8 });
+        state.results = normalizeTracks(found);
+        state.picked = state.results.some((track) => state.picked && track.uri === state.picked.uri) ? state.picked : null;
+        state.info = state.results.length ? 'Tipp einen Song an und dann auf Los.' : 'Nichts gefunden. Versuch einen anderen Suchbegriff.';
+      });
+    }
+
+    function pickTrack(uri) {
+      state.picked = state.results.find((track) => track.uri === uri) || null;
+      render();
+    }
+
+    async function los() {
+      if (!state.picked || !playerById(state.djId)) return;
+      if (state.spotify.availability && state.spotify.availability.premium === false) {
+        presentError(NOT_PREMIUM);
+        render();
+        return;
+      }
+      const picked = state.picked;
+      await withBusy(async () => {
+        await ensureReady();
+        const api = requireApi();
+        let playback = normalizeState(await api.play(picked.uri, { positionMs: 0 }));
+        if (playback && playback.track && sameTrack(playback.track.uri, picked.uri) && playback.positionMs > 1500) {
+          try {
+            playback = normalizeState(await api.seek(0));
+          } catch (error) {
+            presentError(error);
+          }
+        }
+        state.round = {
+          djId: state.djId,
+          uri: picked.uri,
+          secretTitle: picked.title,
+          secretArtist: picked.artist,
+          durationMs: (playback && playback.track && playback.track.durationMs) || picked.durationMs || 0,
+          seenOwnTrack: Boolean(playback && playback.track && sameTrack(playback.track.uri, picked.uri)),
+          highPos: 0,
+          lock: false,
+          startedAt: Date.now(),
+          unconfirmed: false,
+          outcome: '',
+          outcomeWho: ''
+        };
+        state.songsStarted += 1;
+        state.transportPaused = Boolean(playback && playback.paused);
+        state.notice = '';
+        state.info = '';
+        state.results = [];
+        state.phase = 'playing';
+        startPoll();
+      });
+    }
+
+    async function buzz() {
+      const round = state.round;
+      if (!round || state.phase !== 'playing' || round.lock) return;
+      round.lock = true;
+      stopPoll();
+      state.phase = 'guess';
+      state.guesserId = null;
+      state.notice = '';
+      render();
+      buzzHaptic();
+      try {
+        await requireApi().pause();
+      } catch (error) {
+        presentError(error);
+        paintBanners();
+      }
+    }
+
+    async function resumeTransport() {
+      if (state.phase !== 'playing' || !state.round || state.round.lock) return;
+      try {
+        await requireApi().resume();
+        state.transportPaused = false;
+        state.error = '';
+        paintTransport();
+        paintBanners();
+      } catch (error) {
+        presentError(error);
+        paintBanners();
+      }
+    }
+
+    async function retryPlay() {
+      const round = state.round;
+      if (!round || round.seenOwnTrack || state.phase !== 'playing') return;
+      await withBusy(async () => {
+        const api = requireApi();
+        let playback = normalizeState(await api.play(round.uri, { positionMs: 0 }));
+        if (playback && playback.track && sameTrack(playback.track.uri, round.uri) && playback.positionMs > 1500) {
+          playback = normalizeState(await api.seek(0));
+        }
+        round.seenOwnTrack = Boolean(playback && playback.track && sameTrack(playback.track.uri, round.uri));
+        round.unconfirmed = false;
+        round.startedAt = Date.now();
+        round.highPos = 0;
+        state.transportPaused = Boolean(playback && playback.paused);
+        if (state.phase === 'playing') startPoll();
+      });
+    }
+
+    async function backToSearch() {
+      const round = state.round;
+      if (!round || round.seenOwnTrack || state.phase !== 'playing') return;
+      round.lock = true;
+      stopPoll();
+      try { await requireApi().pause(); } catch (error) { presentError(error); }
+      state.songsStarted = Math.max(0, state.songsStarted - 1);
+      state.round = null;
+      state.phase = 'search';
+      state.info = 'Der Song ist nicht angelaufen. Such noch einmal.';
+      render();
+    }
+
+    function selectGuesser(id) {
+      const player = playerById(id);
+      const dj = currentDjId();
+      if (!player || player.id === dj) return;
+      state.guesserId = player.id;
+      render();
+    }
+
+    async function judge(correct) {
+      const round = state.round;
+      const guesser = playerById(state.guesserId);
+      if (!round || !guesser || state.phase !== 'guess' || guesser.id === round.djId) return;
+      if (correct) {
+        guesser.score += 1;
+        round.outcome = 'correct';
+        round.outcomeWho = guesser.name;
+        state.phase = 'reveal';
+        render();
+        try { await requireApi().pause(); } catch (error) { presentError(error); paintBanners(); }
+        return;
+      }
+      guesser.score -= 1;
+      round.lock = false;
+      state.notice = guesser.name + ' liegt falsch und bekommt −1. Der Song läuft weiter.';
+      state.phase = 'playing';
+      state.transportPaused = false;
+      render();
+      startPoll();
+      try {
+        await requireApi().resume();
+      } catch (error) {
+        state.transportPaused = true;
+        presentError(error);
+        paintTransport();
+        paintBanners();
+      }
+    }
+
+    async function resumeMistake() {
+      const round = state.round;
+      if (!round || state.phase !== 'guess') return;
+      round.lock = false;
+      state.notice = 'Stopp zurückgenommen. Der Song läuft weiter, niemand bekommt Punkte.';
+      state.phase = 'playing';
+      render();
+      startPoll();
+      try {
+        await requireApi().resume();
+      } catch (error) {
+        state.transportPaused = true;
+        presentError(error);
+        paintTransport();
+        paintBanners();
+      }
+    }
+
+    async function skipSong() {
+      const round = state.round;
+      const dj = round && playerById(round.djId);
+      if (!round || !dj || state.phase !== 'playing' || round.lock) return;
+      round.lock = true;
+      stopPoll();
+      dj.score -= 3;
+      round.outcome = 'skip';
+      state.phase = 'reveal';
+      render();
+      try { await requireApi().pause(); } catch (error) { presentError(error); paintBanners(); }
+    }
+
+    function endedYes() {
+      if (state.phase !== 'endedAsk') return;
+      state.guesserId = null;
+      state.phase = 'endedWho';
+      render();
+    }
+
+    function endedNo() {
+      const round = state.round;
+      const dj = round && playerById(round.djId);
+      if (!round || !dj || state.phase !== 'endedAsk') return;
+      dj.score -= 3;
+      round.outcome = 'ended-no';
+      state.phase = 'reveal';
+      render();
+    }
+
+    function confirmEndedWho() {
+      const round = state.round;
+      const guesser = playerById(state.guesserId);
+      if (!round || !guesser || state.phase !== 'endedWho' || guesser.id === round.djId) return;
+      guesser.score += 1;
+      round.outcome = 'ended-yes';
+      round.outcomeWho = guesser.name;
+      state.phase = 'reveal';
+      render();
+    }
+
+    function nextDj() {
+      stopPoll();
+      state.phase = 'dj';
+      state.djId = null;
+      state.picked = null;
+      state.results = [];
+      state.round = null;
+      state.guesserId = null;
+      state.notice = '';
+      state.error = '';
+      state.info = 'Gib das Handy weiter. Die nächste Person bestätigt, dass sie DJ ist.';
+      render();
+    }
+
+    function askEnd() { state.confirmEnd = true; render(); }
+    function cancelEnd() { state.confirmEnd = false; render(); }
+
+    async function finishGame() {
+      state.confirmEnd = false;
+      stopPoll();
+      if (state.round) state.round.lock = true;
+      const api = spotifyApi();
+      if (api) {
+        try { await api.stop(); } catch (error) { presentError(error); }
+      }
+      state.phase = 'final';
+      render();
+    }
+
+    function again() {
+      state.players.forEach((player) => { player.score = 0; });
+      state.phase = 'setup';
+      state.djId = null;
+      state.round = null;
+      state.picked = null;
+      state.results = [];
+      state.guesserId = null;
+      state.songsStarted = 0;
+      state.notice = '';
+      state.info = '';
+      state.error = '';
+      state.confirmEnd = false;
+      render();
+    }
+
+    function bannersHtml() {
+      return `
+        <div id="errorBanner" class="banner error" ${state.error ? '' : 'hidden'}>${esc(state.error)}</div>
+        <div id="infoBanner" class="banner info" ${state.info ? '' : 'hidden'}>${esc(state.info)}</div>
+      `;
+    }
+
+    function scoreboardHtml() {
+      const dj = currentDjId();
+      return `<div class="scores" aria-label="Punktestand">${state.players.map((player) => `
+        <span class="chip${player.id === dj ? ' is-dj' : ''}">
+          <span class="chip-name">${esc(player.name)}</span>
+          <span class="chip-score">${formatScore(player.score)}</span>
+          ${player.id === dj ? '<span class="chip-role">DJ</span>' : ''}
+        </span>`).join('')}</div>`;
+    }
+
+    function headerHtml() {
+      const inGame = state.phase !== 'setup' && state.phase !== 'final';
+      return `<header>
+        <div>
+          <p class="eyebrow">Partyspiel</p>
+          <h1>Song raten</h1>
+        </div>
+        ${inGame ? '<button type="button" class="linkish" data-action="end">Spiel beenden</button>' : ''}
+      </header>`;
+    }
+
+    function modalHtml() {
+      if (!state.confirmEnd) return '';
+      return `<div class="modal" role="dialog" aria-modal="true" aria-labelledby="endTitle">
+        <div class="card stack">
+          <h2 id="endTitle">Spiel beenden?</h2>
+          <p class="hint">Der aktuelle Song stoppt. Danach seht ihr den Endstand.</p>
+          <button type="button" class="btn bad" data-action="end-confirm">Spiel beenden</button>
+          <button type="button" class="btn secondary" data-action="end-cancel">Weiter spielen</button>
+        </div>
+      </div>`;
+    }
+
+    function sourceSentence(client) {
+      if (!client || client.source === 'none' || !client.clientId) return NO_CLIENT_ID;
+      if (client.source === 'settings') return 'Die Client-ID aus den EveryApp-Einstellungen wird verwendet.';
+      if (client.source === 'bridge') return 'Die Client-ID kommt aus der Bridge. Eingetragen wird sie in EveryApp, nicht in diesem Spiel.';
+      if (client.source === 'prefill') return 'Die Client-ID kommt aus dem App-Build.';
+      return 'Client-ID ist hinterlegt.';
+    }
+
+    function spotifyCardHtml() {
+      const api = spotifyApi();
+      if (!bridge()) {
+        return `<section class="banner warn">Song raten braucht EveryApp und Spotify. Im normalen Browser gibt es keinen Ton. Öffne das Spiel in der EveryApp (Build mit Spotify-Bridge) und verbinde Spotify Premium.</section>`;
+      }
+      if (!api) {
+        return `<section class="banner warn">Diese EveryApp-Version enthält die Spotify-Bridge nicht. Bitte den SrvEveryApp- oder EveryApp-Build verwenden, der sie bereits enthält.</section>`;
+      }
+      const availability = state.spotify.availability;
+      const premium = !availability ? 'noch nicht geprüft' : availability.premium === null || availability.premium === undefined ? 'noch nicht bekannt' : availability.premium ? 'ja' : 'nein';
+      const lines = availability ? [
+        'Spotify-App: ' + (availability.installed ? 'installiert' : 'fehlt'),
+        'Anmeldung: ' + (availability.authorized ? 'ja' : 'nein'),
+        'Verbunden: ' + (availability.connected ? 'ja' : 'nein'),
+        'Premium: ' + premium
+      ] : ['Status noch nicht geprüft.'];
+      const premiumWarn = availability && availability.premium === false
+        ? `<div class="banner error">${esc(NOT_PREMIUM)}</div>` : '';
+      const missing = !state.spotify.client || state.spotify.client.source === 'none' || !state.spotify.client.clientId;
+      return `<section class="card stack">
+        <h2>Spotify</h2>
+        <p class="${missing ? 'banner error' : 'hint'}">${esc(sourceSentence(state.spotify.client))}</p>
+        ${missing ? '<p class="hint">Öffne EveryApp → Spotify auf dem Startbildschirm, trag die Client ID ein und speichere. Danach hier auf Erneut prüfen tippen.</p>' : ''}
+        <p class="hint">${lines.map(esc).join('<br>')}</p>
+        ${premiumWarn}
+        ${!availability || availability.installed ? '' : `<p class="banner error">${esc(NOT_INSTALLED)}</p>`}
+        <div class="row">
+          <button type="button" class="btn ghost" data-action="refresh" ${state.busy ? 'disabled' : ''}>Erneut prüfen</button>
+          <button type="button" class="btn ghost" data-action="login" ${state.busy ? 'disabled' : ''}>Anmelden</button>
+        </div>
+        <div class="row">
+          <button type="button" class="btn ghost" data-action="connect" ${state.busy ? 'disabled' : ''}>Verbinden</button>
+          <button type="button" class="btn ghost" data-action="logout" ${state.busy ? 'disabled' : ''}>Abmelden</button>
+        </div>
+      </section>`;
+    }
+
+    function renderSetup() {
+      const players = state.players.length
+        ? state.players.map((player) => `<div class="player"><span class="player-name">${esc(player.name)}</span><button type="button" class="icon-btn" data-action="remove-player" data-id="${player.id}" aria-label="${esc(player.name)} entfernen">✕</button></div>`).join('')
+        : '<p class="hint">Noch niemand eingetragen.</p>';
+      return `${headerHtml()}
+        <div class="stack">
+          ${bannersHtml()}
+          <p class="lead">Ein Handy, eine Runde, eine Box. Alle tragen sich ein. Der DJ sucht den Song, die anderen raten. Der Ton kommt aus der Spotify-App über den Lautsprecher.</p>
+          ${spotifyCardHtml()}
+          <section class="card stack">
+            <h2>Mitspieler</h2>
+            <form class="row" data-action="add-player">
+              <input id="playerName" type="text" maxlength="24" placeholder="Name" autocomplete="off" autocapitalize="words" value="${esc(state.draftName)}" aria-label="Name">
+              <button class="btn" type="submit" ${state.busy ? 'disabled' : ''}>Hinzufügen</button>
+            </form>
+            ${players}
+            <button type="button" class="btn" data-action="start" ${state.busy || state.players.length < 2 ? 'disabled' : ''}>Spiel starten</button>
+            <p class="hint">Mindestens zwei Personen. Punkte gibt es erst im Spiel, und sie bleiben nur bis „Spiel beenden“.</p>
+          </section>
+          <details class="card">
+            <summary>Regeln kurz</summary>
+            <ol>
+              <li>DJ auswählen und bestätigen.</li>
+              <li>Song suchen und auf Los tippen. Er startet von vorne.</li>
+              <li>Bei „Stopp“ den roten Buzzer drücken.</li>
+              <li>Wer geraten hat (nicht der DJ), dann Ja oder Nein.</li>
+              <li>Richtig +1 und Auflösung. Falsch −1, der Song läuft weiter.</li>
+              <li>Überspringen: −3 für den DJ, dann Auflösung.</li>
+              <li>Song zu Ende: wurde er erraten? Ja ergibt +1, Nein −3 für den DJ.</li>
+            </ol>
+          </details>
+        </div>`;
+    }
+
+    function renderDj() {
+      const choices = state.players.map((player) => `<button type="button" class="choice${player.id === state.djId ? ' selected' : ''}" data-action="select-dj" data-id="${player.id}">${esc(player.name)}</button>`).join('');
+      return `${headerHtml()}<div class="stack">
+        ${bannersHtml()}
+        ${scoreboardHtml()}
+        <section class="stack">
+          <h2>Wer ist der DJ?</h2>
+          <p class="hint">Handy weitergeben. Nur die Person, die den Song aussucht, bestätigt hier ihren Namen.</p>
+          ${choices}
+          <button type="button" class="btn" data-action="confirm-dj" ${state.djId ? '' : 'disabled'}>Ich bin der DJ</button>
+        </section>
+      </div>`;
+    }
+
+    function renderSearch() {
+      const premiumBlocked = state.spotify.availability && state.spotify.availability.premium === false;
+      const dj = playerById(state.djId);
+      const results = state.results.map((track) => {
+        const duration = formatMs(track.durationMs);
+        const meta = [track.artist, track.album, duration].filter(Boolean).join(' · ');
+        const selected = state.picked && state.picked.uri === track.uri;
+        return `<button type="button" class="track${selected ? ' selected' : ''}" data-action="pick-track" data-uri="${esc(track.uri)}"><span><span class="track-title">${esc(track.title)}</span><span class="track-meta">${esc(meta)}</span></span></button>`;
+      }).join('');
+      return `${headerHtml()}<div class="stack">
+        ${bannersHtml()}
+        ${scoreboardHtml()}
+        <section class="stack">
+          <h2>Song aussuchen</h2>
+          <p class="hint">DJ: ${esc(dj ? dj.name : '')}. Nur du solltest diese Liste sehen.</p>
+          <form class="stack" data-action="search">
+            <input id="searchQuery" type="text" placeholder="Titel oder Interpret" autocomplete="off" value="${esc(state.draftQuery)}" aria-label="Suche">
+            <button class="btn secondary" type="submit" ${state.busy ? 'disabled' : ''}>Suchen</button>
+          </form>
+          ${results || '<p class="hint">Noch keine Treffer.</p>'}
+          ${premiumBlocked ? `<div class="banner error">${esc(NOT_PREMIUM)}</div>` : ''}
+          <button type="button" class="btn" data-action="los" ${state.busy || !state.picked || premiumBlocked ? 'disabled' : ''}>Los</button>
+        </section>
+      </div>`;
+    }
+
+    function renderPlaying() {
+      const dj = state.round && playerById(state.round.djId);
+      return `${headerHtml()}<div class="stack">
+        ${bannersHtml()}
+        ${scoreboardHtml()}
+        ${state.notice ? `<div class="banner info">${esc(state.notice)}</div>` : ''}
+        <section class="stage">
+          <div class="eq" aria-hidden="true"><span></span><span></span><span></span><span></span></div>
+          <p class="eyebrow">DJ ${esc(dj ? dj.name : '')}</p>
+          <p id="playState" class="lead" aria-live="polite">${state.transportPaused ? 'Die Wiedergabe ist pausiert. Titel und Interpret bleiben verdeckt.' : 'Der Song läuft über die Box. Titel und Interpret bleiben verdeckt.'}</p>
+          <button type="button" class="buzzer" data-action="buzz" aria-label="Stopp, Song anhalten">STOPP</button>
+          <button type="button" id="resumeBtn" class="btn secondary" data-action="resume" ${state.transportPaused ? '' : 'hidden'}>Fortsetzen</button>
+          ${state.round && state.round.unconfirmed ? `<div id="unconfirmed" class="stack">
+            <p class="banner warn">Spotify spielt den Song noch nicht. Bitte die Box und die Verbindung prüfen. Der Titel bleibt verdeckt.</p>
+            <button type="button" class="btn secondary" data-action="retry-play">Erneut von vorne starten</button>
+            <button type="button" class="btn ghost" data-action="back-search">Zurück zur Suche</button>
+          </div>` : ''}
+        </section>
+        <button type="button" class="btn ghost" data-action="skip">Überspringen (−3 für ${esc(dj ? dj.name : 'den DJ')})</button>
+      </div>`;
+    }
+
+    function guessListHtml() {
+      const dj = currentDjId();
+      return state.players.filter((player) => player.id !== dj).map((player) => `
+        <button type="button" class="choice${player.id === state.guesserId ? ' selected' : ''}" data-action="select-guesser" data-id="${player.id}">${esc(player.name)}</button>
+      `).join('');
+    }
+
+    function renderGuess() {
+      const selected = playerById(state.guesserId);
+      return `${headerHtml()}<div class="stack">
+        ${bannersHtml()}
+        ${scoreboardHtml()}
+        <section class="stack">
+          <h2>Wer hat geraten?</h2>
+          <p class="hint">Der DJ zählt nicht. Erst die Person wählen, dann Ja oder Nein.</p>
+          ${guessListHtml()}
+          <div class="row">
+            <button type="button" class="btn good" data-action="judge-yes" ${selected ? '' : 'disabled'}>Ja, richtig</button>
+            <button type="button" class="btn bad" data-action="judge-no" ${selected ? '' : 'disabled'}>Nein, falsch</button>
+          </div>
+          <button type="button" class="btn ghost" data-action="mistake">Versehentlich gedrückt</button>
+        </section>
+      </div>`;
+    }
+
+    function renderEndedAsk() {
+      return `${headerHtml()}<div class="stack">
+        ${bannersHtml()}
+        ${scoreboardHtml()}
+        <section class="stack">
+          <h2>Der Song ist zu Ende.</h2>
+          <p class="lead">Wurde der Song erraten?</p>
+          <button type="button" class="btn good" data-action="ended-yes">Ja</button>
+          <button type="button" class="btn bad" data-action="ended-no">Nein, niemand (−3 für den DJ)</button>
+        </section>
+      </div>`;
+    }
+
+    function renderEndedWho() {
+      const selected = playerById(state.guesserId);
+      return `${headerHtml()}<div class="stack">
+        ${bannersHtml()}
+        ${scoreboardHtml()}
+        <section class="stack">
+          <h2>Wer hat ihn erraten?</h2>
+          <p class="hint">Der DJ bekommt den Punkt nicht.</p>
+          ${guessListHtml()}
+          <button type="button" class="btn" data-action="ended-confirm" ${selected ? '' : 'disabled'}>Punkt geben (+1)</button>
+        </section>
+      </div>`;
+    }
+
+    function renderReveal() {
+      const round = state.round;
+      const dj = round && playerById(round.djId);
+      let outcome = '';
+      if (round && round.outcome === 'correct') outcome = (round.outcomeWho || 'Jemand') + ' liegt richtig und bekommt +1.';
+      if (round && round.outcome === 'skip') outcome = 'Übersprungen. ' + (dj ? dj.name : 'Der DJ') + ' bekommt −3.';
+      if (round && round.outcome === 'ended-yes') outcome = 'Doch erraten. ' + (round.outcomeWho || 'Jemand') + ' bekommt +1.';
+      if (round && round.outcome === 'ended-no') outcome = 'Nicht erraten. ' + (dj ? dj.name : 'Der DJ') + ' bekommt −3.';
+      return `${headerHtml()}<div class="stack">
+        ${bannersHtml()}
+        ${scoreboardHtml()}
+        <section class="card stack">
+          <p class="eyebrow">Auflösung</p>
+          <h2 class="reveal-title">${esc(round ? round.secretTitle : '')}</h2>
+          <p class="reveal-artist">${esc(round ? round.secretArtist : '')}</p>
+          <p class="lead">${esc(outcome)}</p>
+        </section>
+        <p class="hint">Bitte das Handy weitergeben. Die nächste Person schaut erst drauf, wenn sie DJ ist.</p>
+        <button type="button" class="btn" data-action="next-dj">Nächsten DJ wählen</button>
+      </div>`;
+    }
+
+    function renderFinal() {
+      const ranked = state.players.slice().sort((a, b) => b.score - a.score || a.name.localeCompare(b.name, 'de'));
+      const top = ranked[0];
+      const tied = ranked.filter((player) => player.score === (top ? top.score : 0));
+      const winner = top && tied.length === 1 ? top.name + ' gewinnt.' : 'Gleichstand an der Spitze.';
+      return `${headerHtml()}<div class="stack">
+        ${bannersHtml()}
+        <section class="card">
+          <h2>Endstand</h2>
+          <p class="lead">${state.players.length ? esc(winner) : 'Keine Mitspieler.'}</p>
+          <p class="hint">${state.songsStarted} ${state.songsStarted === 1 ? 'Song wurde' : 'Songs wurden'} gestartet.</p>
+          ${ranked.map((player, index) => `<div class="rank"><span>${index + 1}. ${esc(player.name)}</span><strong>${formatScore(player.score)}</strong></div>`).join('')}
+        </section>
+        <button type="button" class="btn" data-action="again">Nochmal, gleiche Namen</button>
+      </div>`;
+    }
+
+    function render() {
+      const views = {
+        setup: renderSetup,
+        dj: renderDj,
+        search: renderSearch,
+        playing: renderPlaying,
+        guess: renderGuess,
+        endedAsk: renderEndedAsk,
+        endedWho: renderEndedWho,
+        reveal: renderReveal,
+        final: renderFinal
+      };
+      const view = views[state.phase] || renderSetup;
+      app.innerHTML = view() + modalHtml();
+    }
+
+    function onClick(event) {
+      const button = event.target.closest('[data-action]');
+      if (!button || button.disabled) return;
+      const action = button.dataset.action;
+      if (action === 'remove-player') removePlayer(Number(button.dataset.id));
+      if (action === 'start') startGame();
+      if (action === 'refresh') withBusy(loadSpotifyStatus);
+      if (action === 'login') withBusy(async () => { await requireClient(); await requireApi().login(); await loadSpotifyStatus(); state.info = 'Anmeldung abgeschlossen.'; });
+      if (action === 'connect') withBusy(async () => {
+        await requireClient();
+        const status = await requireApi().isAvailable();
+        state.spotify.availability = status;
+        if (!status.installed) throw new Error(NOT_INSTALLED);
+        if (!status.authorized) throw new Error('Spotify ist nicht angemeldet. Bitte zuerst anmelden.');
+        await requireApi().connect();
+        await loadSpotifyStatus();
+        state.info = 'Mit der Spotify-App verbunden. Der Ton kommt aus der Box.';
+      });
+      if (action === 'logout') withBusy(async () => {
+        await requireApi().logout();
+        await loadSpotifyStatus();
+        state.info = 'Bei Spotify abgemeldet. Die Client-ID in den EveryApp-Einstellungen bleibt erhalten.';
+      });
+      if (action === 'select-dj') selectDj(Number(button.dataset.id));
+      if (action === 'confirm-dj') confirmDj();
+      if (action === 'pick-track') pickTrack(button.dataset.uri);
+      if (action === 'los') los();
+      if (action === 'buzz') buzz();
+      if (action === 'resume') resumeTransport();
+      if (action === 'retry-play') retryPlay();
+      if (action === 'back-search') backToSearch();
+      if (action === 'select-guesser') selectGuesser(Number(button.dataset.id));
+      if (action === 'judge-yes') judge(true);
+      if (action === 'judge-no') judge(false);
+      if (action === 'mistake') resumeMistake();
+      if (action === 'skip') skipSong();
+      if (action === 'ended-yes') endedYes();
+      if (action === 'ended-no') endedNo();
+      if (action === 'ended-confirm') confirmEndedWho();
+      if (action === 'next-dj') nextDj();
+      if (action === 'end') askEnd();
+      if (action === 'end-cancel') cancelEnd();
+      if (action === 'end-confirm') finishGame();
+      if (action === 'again') again();
+    }
+
+    function bind() {
+      app.addEventListener('click', onClick);
+      app.addEventListener('submit', (event) => {
+        const form = event.target;
+        if (!form || !form.dataset) return;
+        event.preventDefault();
+        if (form.dataset.action === 'add-player') addPlayer();
+        if (form.dataset.action === 'search') runSearch();
+      });
+      app.addEventListener('input', (event) => {
+        if (event.target.id === 'playerName') state.draftName = event.target.value;
+        if (event.target.id === 'searchQuery') state.draftQuery = event.target.value;
+      });
+    }
+
+    function subscribe() {
+      const api = bridge();
+      if (!api || !api.events || !api.events.on) return;
+      try {
+        api.events.on('spotify.player', onPlayer);
+        api.events.on('spotify.error', (payload) => {
+          presentError(payload && payload.message ? payload.message : payload);
+          if (!document.getElementById('errorBanner')) render();
+          else paintBanners();
+        });
+        api.events.on('spotify.disconnected', () => {
+          if (state.spotify.availability) state.spotify.availability.connected = false;
+          presentError('Verbindung zu Spotify getrennt.');
+          render();
+        });
+        api.events.on('spotify.connected', () => {
+          loadSpotifyStatus().then(() => render()).catch((error) => { presentError(error); render(); });
+        });
+      } catch (error) {
+        presentError(error);
+      }
+    }
+
+    function init() {
+      bind();
+      subscribe();
+      if (spotifyApi()) {
+        loadSpotifyStatus().then(() => render()).catch((error) => { presentError(error); render(); });
+      } else {
+        render();
+      }
+    }
+
+    init();
+  </script>
+</body>
+</html>
