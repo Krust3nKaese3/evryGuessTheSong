@@ -17,6 +17,7 @@ https://github.com/Krust3nKaese3/evryGuessTheSong
 4. Die Berechtigungen bestätigen:
    - **spotify** — Suche und Wiedergabe über die Spotify-App
    - **vibration** — kurzes haptisches Feedback, wenn der DJ auf den roten Stopp-Buzzer tippt
+   - **storage** — den laufenden Spielstand über das vollständige Schließen von EveryApp hinaus behalten
 
 5. Die Box (Bluetooth-Lautsprecher) wie gewohnt mit dem Handy koppeln. Song raten verbindet sich nicht selbst mit dem Lautsprecher.
 
@@ -32,7 +33,7 @@ Dashboard, Redirect-URI und SHA1 stehen in der EveryApp-Doku: [SPOTIFY.md](https
 
 ## Regeln
 
-Alle sitzen im Kreis. Ein Handy geht reihum. Gespielt wird, bis jemand auf **Spiel beenden** tippt. Danach kommt der Endstand. Punkte gelten nur für diese Runde. Ein laufendes Spiel bleibt lokal erhalten, bis es mit **Spiel beenden** endet.
+Alle sitzen im Kreis. Ein Handy geht reihum. Gespielt wird, bis jemand auf **Spiel beenden** tippt. Danach kommt der Endstand. Punkte gelten nur für diese Runde. Ein laufendes Spiel bleibt im EveryApp-Speicher erhalten, bis es mit **Spiel beenden** endet.
 
 Jede Runde:
 
@@ -67,7 +68,9 @@ Die Lobby davor bleibt wie bisher: Erneut prüfen, Anmelden, Verbinden.
 
 ## Wenn die App mitten im Spiel schließt
 
-Punktestand und der laufende Spielstand werden im lokalen Speicher des WebViews festgehalten, sobald sich im Spiel etwas ändert. Schließt sich die Mini-App, stürzt sie ab oder wird sie beendet, öffnet der nächste Start direkt wieder denselben Bildschirm. Namen müssen nicht neu eingetragen werden.
+Punktestand und der laufende Spielstand werden im Speicher von EveryApp festgehalten (`EveryAppBridge.storage`, auf dem Gerät AsyncStorage, getrennt pro Mini-App), sobald sich im Spiel etwas ändert. Der `localStorage` des WebViews reicht dafür nicht: EveryApp lädt die Mini-App mit `source={{ html }}` und ohne `baseUrl`, also ohne stabile Origin. `localStorage` kann in derselben Sitzung noch funktionieren, übersteht aber das vollständige Schließen von EveryApp nicht.
+
+Deshalb steht **storage** in den Berechtigungen. Ist sie erteilt, öffnet der nächste Start nach einem vollständigen Schließen wieder denselben Bildschirm. Namen müssen nicht neu eingetragen werden. Fehlt die Bridge oder die Berechtigung (zum Beispiel im Browser), läuft das Spiel weiter. Der Stand wird dann nicht über einen vollständigen Neustart hinweg wiederhergestellt.
 
 Ein Spiel, das schon über **Spiel beenden** auf dem Endstand liegt, wird nicht als laufende Runde wieder geöffnet. „Nochmal, gleiche Namen“ startet wie bisher ein neues Spiel.
 
@@ -78,7 +81,7 @@ Im Speicher liegen nur Spieldaten dieser Runde. Keine Spotify-Client-ID, kein Se
 Zwei Abläufe sind gegenüber der eingefrorenen Rohfassung neu. Der Branch `roh` (Commit `6437c5dd`, Screenshots unter `roh-screenshots/`) bleibt unverändert und ist die Vergleichsbasis:
 
 - Bricht Spotify mitten im Spiel ab, gibt es **Verbinden**, ohne die Runde abzubrechen oder den Punktestand zu verwerfen.
-- Schließt sich die App mitten im Spiel oder stürzt sie ab, stellt der nächste Start den kompletten Spielstand wieder her und landet auf dem Bildschirm, auf dem die Runde stand.
+- Schließt sich die App mitten im Spiel oder stürzt sie ab, stellt der nächste Start den kompletten Spielstand aus dem EveryApp-Speicher wieder her und landet auf dem Bildschirm, auf dem die Runde stand. Dafür ist die Berechtigung `storage` nötig.
 
 Das sind gewollte Verbesserungen für den späteren Vergleich mit der Rohfassung, nicht das Verhalten von `roh`.
 
@@ -94,7 +97,7 @@ Nur ein gültiger Tipp auf den roten Stopp-Buzzer piept. Der Ton startet im selb
 
 ## Im Browser
 
-Ohne EveryApp-Bridge erscheint ein kurzer Hinweis. Das Spiel startet dort nicht und bricht nicht ab. Ton gibt es nur in EveryApp mit Spotify.
+Ohne EveryApp-Bridge erscheint ein kurzer Hinweis. Das Spiel startet dort nicht und bricht nicht ab. Ton gibt es nur in EveryApp mit Spotify. Den Spielstand nach dem vollständigen Schließen gibt es nur in EveryApp, nachdem die Berechtigung `storage` erteilt wurde.
 
 ## Aufbau
 
@@ -105,4 +108,4 @@ evryGuessTheSong/
 └── README.md
 ```
 
-Benötigte Berechtigungen: `spotify`, `vibration`.
+Benötigte Berechtigungen: `spotify`, `vibration`, `storage`.

@@ -225,8 +225,13 @@
     };
 
     let recsToken = 0;
+    let saveReady = false;
+    let bridgeReadOk = false;
+    let booting = true;
+    let saveQueue = Promise.resolve();
 
     const SAVE_KEY = 'songraten.game.v1';
+    const STORAGE_TIMEOUT_MS = 4000;
     const IN_GAME_PHASES = ['dj', 'search', 'playing', 'guess', 'endedAsk', 'endedWho', 'reveal'];
     const SAVE_FIELDS = [
       'phase', 'players', 'nextId', 'djId', 'round', 'picked', 'results',
@@ -1429,7 +1434,7 @@
       state.phase = 'final';
       state.resumeAfterReconnect = false;
       state.dropNoted = false;
-      persistGame();
+      await persistGame();
       const api = spotifyApi();
       if (api) {
         try { await api.stop(); } catch (error) { presentError(error); }
@@ -1769,6 +1774,7 @@
     }
 
     function render() {
+      if (booting) return;
       const views = {
         setup: renderSetup,
         dj: renderDj,
@@ -1785,20 +1791,99 @@
       persistGame();
     }
 
-    function persistGame() {
-      try {
-        if (!inGame()) {
-          localStorage.removeItem(SAVE_KEY);
-          return;
-        }
-        const snapshot = { v: 1 };
-        SAVE_FIELDS.forEach((key) => {
-          if (state[key] !== undefined) snapshot[key] = state[key];
-        });
-        localStorage.setItem(SAVE_KEY, JSON.stringify(snapshot));
-      } catch (error) {
-        // Speicher kann voll oder gesperrt sein. Das laufende Spiel bleibt davon unberührt.
+    function persistentStore() {
+      const api = bridge();
+      const storage = api && api.storage;
+      if (!storage || typeof storage.get !== 'function' || typeof storage.set !== 'function' || typeof storage.remove !== 'function') {
+        return null;
       }
+      return storage;
+    }
+
+    function withTimeout(promise, ms) {
+      return new Promise((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error('timeout')), ms);
+        Promise.resolve(promise).then((value) => {
+          clearTimeout(timer);
+          resolve(value);
+        }, (error) => {
+          clearTimeout(timer);
+          reject(error);
+        });
+      });
+    }
+
+    function readLocalRaw() {
+      try {
+        return localStorage.getItem(SAVE_KEY);
+      } catch (error) {
+        return null;
+      }
+    }
+
+    async function readBridgeValue() {
+      const storage = persistentStore();
+      if (!storage) return { ok: false, value: null };
+      try {
+        const value = await withTimeout(storage.get(SAVE_KEY), STORAGE_TIMEOUT_MS);
+        return { ok: true, value: value == null ? null : value };
+      } catch (error) {
+        return { ok: false, value: null };
+      }
+    }
+
+    function parseSaved(raw) {
+      if (raw == null || raw === '') return null;
+      let saved = raw;
+      if (typeof raw === 'string') {
+        try { saved = JSON.parse(raw); } catch (error) { return null; }
+      }
+      if (!saved || typeof saved !== 'object') return null;
+      return saved;
+    }
+
+    function snapshotRaw() {
+      if (!inGame()) return null;
+      const snapshot = { v: 1 };
+      SAVE_FIELDS.forEach((key) => {
+        if (state[key] !== undefined) snapshot[key] = state[key];
+      });
+      return JSON.stringify(snapshot);
+    }
+
+    async function writeSavedRaw(raw, touchBridge) {
+      if (touchBridge !== false) {
+        const storage = persistentStore();
+        if (storage) {
+          try {
+            if (raw == null) await withTimeout(storage.remove(SAVE_KEY), STORAGE_TIMEOUT_MS);
+            else await withTimeout(storage.set(SAVE_KEY, String(raw)), STORAGE_TIMEOUT_MS);
+          } catch (error) {
+            // Bridge fehlt, storage ist nicht erlaubt, oder der Aufruf kommt nicht zurück.
+          }
+        }
+      }
+      try {
+        if (raw == null) localStorage.removeItem(SAVE_KEY);
+        else localStorage.setItem(SAVE_KEY, String(raw));
+      } catch (error) {
+        // localStorage kann voll oder gesperrt sein. Das laufende Spiel bleibt davon unberührt.
+      }
+    }
+
+    function persistGame() {
+      if (!saveReady) return Promise.resolve();
+      let raw;
+      try {
+        raw = snapshotRaw();
+      } catch (error) {
+        return Promise.resolve();
+      }
+      const touchBridge = raw != null || bridgeReadOk;
+      if (raw != null) bridgeReadOk = true;
+      const job = saveQueue.then(() => writeSavedRaw(raw, touchBridge));
+      saveQueue = job.then(() => {}, () => {});
+      return job.then(() => {}, () => {});
     }
 
     function asText(value) {
@@ -1825,23 +1910,25 @@
       return players.some((player) => player.id === round.djId);
     }
 
-    function restoreGame() {
+    async function restoreGame() {
       let saved = null;
       try {
-        const raw = localStorage.getItem(SAVE_KEY);
-        if (!raw) return false;
-        saved = JSON.parse(raw);
+        const bridgeResult = await readBridgeValue();
+        bridgeReadOk = bridgeResult.ok;
+        const bridgeHas = bridgeResult.ok && bridgeResult.value != null && bridgeResult.value !== '';
+        const raw = bridgeHas ? bridgeResult.value : readLocalRaw();
+        if (raw == null || raw === '') return false;
+        saved = parseSaved(raw);
       } catch (error) {
-        try { localStorage.removeItem(SAVE_KEY); } catch (ignore) {}
         return false;
       }
       if (!saved || typeof saved !== 'object' || !inGamePhase(saved.phase)) {
-        try { localStorage.removeItem(SAVE_KEY); } catch (ignore) {}
+        await writeSavedRaw(null, bridgeReadOk);
         return false;
       }
       const players = restorePlayers(saved.players);
       if (players.length < 2) {
-        try { localStorage.removeItem(SAVE_KEY); } catch (ignore) {}
+        await writeSavedRaw(null, bridgeReadOk);
         return false;
       }
       state.players = players;
@@ -1977,6 +2064,7 @@
     }
 
     function afterStatus() {
+      booting = false;
       if (state.spotify.availability && state.spotify.availability.connected) {
         if (connectionProblem(state.error)) state.error = '';
         state.dropNoted = false;
@@ -1988,14 +2076,17 @@
       render();
     }
 
-    function init() {
+    async function init() {
       bind();
       subscribe();
-      restoreGame();
-      window.addEventListener('pagehide', persistGame);
+      window.addEventListener('pagehide', () => { persistGame(); });
       document.addEventListener('visibilitychange', () => {
         if (document.visibilityState === 'hidden') persistGame();
       });
+      try {
+        await restoreGame();
+      } catch (error) {}
+      saveReady = true;
       if (spotifyApi()) {
         loadSpotifyStatus().then(afterStatus).catch((error) => { presentError(error); afterStatus(); });
       } else {
