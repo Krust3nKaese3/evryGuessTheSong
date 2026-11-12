@@ -32,7 +32,7 @@ Dashboard, Redirect-URI und SHA1 stehen in der EveryApp-Doku: [SPOTIFY.md](https
 
 ## Regeln
 
-Alle sitzen im Kreis. Ein Handy geht reihum. Gespielt wird, bis jemand auf **Spiel beenden** tippt. Danach kommt der Endstand. Punkte gelten nur für diese Runde im Speicher, sie werden nicht gespeichert.
+Alle sitzen im Kreis. Ein Handy geht reihum. Gespielt wird, bis jemand auf **Spiel beenden** tippt. Danach kommt der Endstand. Punkte gelten nur für diese Runde. Ein laufendes Spiel bleibt lokal erhalten, bis es mit **Spiel beenden** endet.
 
 Jede Runde:
 
@@ -56,6 +56,31 @@ Auf der Suchseite des DJ gibt es den Button **Empfehlungen**. Es wird nichts gel
 Die Vorschläge stammen aus allen Tracks, die in diesem Spiel schon gestartet wurden, vom ersten Song bis **Spiel beenden** oder „Nochmal, gleiche Namen“. Vor dem ersten gestarteten Song gibt es noch keine Empfehlungen. Der Hinweis erscheint, ohne Spotify zu fragen.
 
 Die Liste gilt nur für den aktuellen DJ. Geht das Handy weiter (der nächste DJ wird bestätigt), ist sie weg. Ein späterer DJ sieht keine Tracks, die einem früheren DJ in diesem Spiel schon als Empfehlung angezeigt wurden. Ein angezeigter, aber nicht gestarteter Vorschlag darf weiter über die Suche und **Los** laufen. Nur ein echtes **Los** sperrt den Track. Tippt derselbe DJ im selben Suchgang noch einmal auf **Empfehlungen**, bleiben dieselben Vorschläge stehen.
+
+## Spotify bricht mitten im Spiel ab
+
+Nach „Spiel starten“ kann die Verbindung zu Spotify weg sein, zum Beispiel auf der DJ-Wahl, der Suche, während der Song läuft, beim Buzzer, beim Tipp, bei der Auflösung oder bei der Frage zum Songende. Dann erscheint auf dem aktuellen Bildschirm **Verbinden**.
+
+Verbinden meldet bei Bedarf an und verbindet danach neu, über die Spotify-Bridge von EveryApp. Die Runde bleibt offen: dieselben Mitspieler, derselbe Punktestand, derselbe DJ, dieselbe Phase, dieselben schon gestarteten Songs, die Empfehlungen und die aktuelle Auswahl. Es startet kein neues Spiel. Lief gerade ein Song, geht die Wiedergabe danach an derselben Stelle weiter. Der Song wird dabei nicht übersprungen und nicht aufgelöst.
+
+Die Lobby davor bleibt wie bisher: Erneut prüfen, Anmelden, Verbinden.
+
+## Wenn die App mitten im Spiel schließt
+
+Punktestand und der laufende Spielstand werden im lokalen Speicher des WebViews festgehalten, sobald sich im Spiel etwas ändert. Schließt sich die Mini-App, stürzt sie ab oder wird sie beendet, öffnet der nächste Start direkt wieder denselben Bildschirm. Namen müssen nicht neu eingetragen werden.
+
+Ein Spiel, das schon über **Spiel beenden** auf dem Endstand liegt, wird nicht als laufende Runde wieder geöffnet. „Nochmal, gleiche Namen“ startet wie bisher ein neues Spiel.
+
+Im Speicher liegen nur Spieldaten dieser Runde. Keine Spotify-Client-ID, kein Secret und kein Token.
+
+## UX gegenüber der Rohfassung
+
+Zwei Abläufe sind gegenüber der eingefrorenen Rohfassung neu. Der Branch `roh` (Commit `6437c5dd`, Screenshots unter `roh-screenshots/`) bleibt unverändert und ist die Vergleichsbasis:
+
+- Bricht Spotify mitten im Spiel ab, gibt es **Verbinden**, ohne die Runde abzubrechen oder den Punktestand zu verwerfen.
+- Schließt sich die App mitten im Spiel oder stürzt sie ab, stellt der nächste Start den kompletten Spielstand wieder her und landet auf dem Bildschirm, auf dem die Runde stand.
+
+Das sind gewollte Verbesserungen für den späteren Vergleich mit der Rohfassung, nicht das Verhalten von `roh`.
 
 ## Spoiler
 
