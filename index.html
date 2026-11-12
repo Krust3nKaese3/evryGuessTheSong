@@ -42,6 +42,7 @@
     .banner.error { background: #ffd8d2; color: #4d100c; }
     .banner.info { background: #d9ffe8; color: #07321c; }
     .banner.warn { background: #ffe08a; color: #332000; }
+    .banner .btn { width: 100%; }
     .row { display: flex; gap: 8px; }
     .row > * { flex: 1; }
     input[type="text"] {
@@ -216,10 +217,23 @@
       recsLoading: false,
       recsReady: false,
       recsNote: '',
+      resumeAfterReconnect: false,
+      dropNoted: false,
+      reconnectInFlight: false,
+      playbackGraceUntil: 0,
       spotify: { client: null, availability: null }
     };
 
     let recsToken = 0;
+
+    const SAVE_KEY = 'songraten.game.v1';
+    const IN_GAME_PHASES = ['dj', 'search', 'playing', 'guess', 'endedAsk', 'endedWho', 'reveal'];
+    const SAVE_FIELDS = [
+      'phase', 'players', 'nextId', 'djId', 'round', 'picked', 'results',
+      'draftName', 'draftQuery', 'guesserId', 'error', 'info', 'notice',
+      'confirmEnd', 'transportPaused', 'songsStarted', 'startedUris',
+      'shownRecommendationUris', 'recommendations', 'recsReady', 'recsNote'
+    ];
 
     const app = document.getElementById('app');
 
@@ -256,6 +270,8 @@
         return;
       }
       state.error = text;
+      if (connectionProblem(state.error)) noteSpotifyDrop();
+      if (inGame() && spotifyDropped() && !document.getElementById('spotifyReconnect')) render();
     }
 
     function requireApi() {
@@ -301,7 +317,156 @@
       }
       if (!status.installed) throw new Error(NOT_INSTALLED);
       if (status.premium === false) throw new Error(NOT_PREMIUM);
+      if (status.connected) state.dropNoted = false;
       return status;
+    }
+
+    function inGamePhase(phase) {
+      return IN_GAME_PHASES.indexOf(phase) !== -1;
+    }
+
+    function inGame() {
+      return inGamePhase(state.phase);
+    }
+
+    function connectionProblem(text) {
+      const value = String(text || '');
+      return [
+        'Verbindung zu Spotify getrennt.',
+        'Nicht mit Spotify verbunden.',
+        'Spotify ist nicht angemeldet.',
+        'In der Spotify-App ist niemand angemeldet.',
+        'Spotify hat die Fernsteuerung nicht erlaubt.',
+        'Spotify-Anmeldung abgebrochen.',
+        'Spotify-Anmeldung fehlgeschlagen.',
+        'Die Spotify-Anmeldung wurde abgelehnt.'
+      ].some((piece) => value.indexOf(piece) !== -1);
+    }
+
+    function needsLogin(text) {
+      const value = String(text || '');
+      return [
+        'Spotify ist nicht angemeldet.',
+        'In der Spotify-App ist niemand angemeldet.',
+        'Spotify hat die Fernsteuerung nicht erlaubt.',
+        'Spotify-Anmeldung abgebrochen.',
+        'Spotify-Anmeldung fehlgeschlagen.',
+        'Die Spotify-Anmeldung wurde abgelehnt.'
+      ].some((piece) => value.indexOf(piece) !== -1);
+    }
+
+    function noteSpotifyDrop() {
+      if (!state.spotify.availability || typeof state.spotify.availability !== 'object') {
+        state.spotify.availability = {};
+      }
+      state.spotify.availability.connected = false;
+      if (needsLogin(state.error)) state.spotify.availability.authorized = false;
+      if (state.info === 'Wieder mit Spotify verbunden.') state.info = '';
+      if (!inGame() || state.dropNoted) return;
+      state.dropNoted = true;
+      if (state.phase === 'playing' && state.round && !state.round.lock) state.round.holdEnd = true;
+      if (state.resumeAfterReconnect) return;
+      state.resumeAfterReconnect = Boolean(
+        state.phase === 'playing' && state.round && !state.round.lock && !state.transportPaused
+      );
+    }
+
+    function spotifyDropped() {
+      if (!inGame()) return false;
+      if (!spotifyApi()) return true;
+      const availability = state.spotify.availability;
+      if (availability && availability.connected === true) return false;
+      if (availability && availability.connected === false) return true;
+      return connectionProblem(state.error);
+    }
+
+    function armPlaybackGrace(ms) {
+      state.playbackGraceUntil = Date.now() + ms;
+    }
+
+    function inPlaybackGrace() {
+      return Date.now() < (state.playbackGraceUntil || 0);
+    }
+
+    function endSuppressed() {
+      return state.dropNoted || state.reconnectInFlight || inPlaybackGrace();
+    }
+
+    function resumePosition(round) {
+      const position = Number(round && round.positionMs) || 0;
+      if (position > 0) return position;
+      return Math.max(0, Number(round && round.highPos) || 0);
+    }
+
+    function notePosition(round, snapshot) {
+      const position = Number(snapshot.positionMs) || 0;
+      round.positionMs = position;
+      if (position > (round.highPos || 0)) round.highPos = position;
+    }
+
+    function rememberPlayback(round, playback) {
+      if (!round || !playback || !playback.track || !sameTrack(playback.track.uri, round.uri)) return;
+      round.seenOwnTrack = true;
+      round.unconfirmed = false;
+      round.holdEnd = false;
+      notePosition(round, playback);
+      if (playback.track.durationMs && !round.durationMs) round.durationMs = playback.track.durationMs;
+    }
+
+    async function restorePlayback() {
+      const round = state.round;
+      if (!round) return;
+      const api = requireApi();
+      armPlaybackGrace(4000);
+      let playback = null;
+      try {
+        playback = normalizeState(await api.resume());
+      } catch (error) {
+        playback = null;
+      }
+      const playingOurs = playback && !playback.paused && playback.track && sameTrack(playback.track.uri, round.uri);
+      if (!playingOurs) {
+        playback = normalizeState(await api.play(round.uri, { positionMs: resumePosition(round) }));
+      }
+      rememberPlayback(round, playback);
+      state.transportPaused = Boolean(!playback || playback.paused);
+    }
+
+    async function settlePlayback() {
+      const phase = state.phase;
+      if (phase === 'playing' && state.round && !state.round.lock) {
+        if (state.resumeAfterReconnect) await restorePlayback();
+        else if (state.transportPaused) {
+          try { await requireApi().pause(); } catch (error) { presentError(error); }
+        }
+        if (state.phase === 'playing' && state.round && !state.round.lock) startPoll();
+        return;
+      }
+      if (phase === 'guess' || phase === 'reveal' || phase === 'endedAsk' || phase === 'endedWho') {
+        try { await requireApi().pause(); } catch (error) { presentError(error); }
+      }
+    }
+
+    async function reconnectInGame() {
+      if (!inGame()) return;
+      state.reconnectInFlight = true;
+      armPlaybackGrace(20000);
+      if (state.phase === 'playing' && state.round) state.round.holdEnd = true;
+      try {
+        await ensureReady();
+        const status = state.spotify.availability;
+        if (!status || !status.connected) throw new Error('Verbindung zu Spotify getrennt.');
+        state.dropNoted = false;
+        armPlaybackGrace(4000);
+        await settlePlayback();
+        state.info = 'Wieder mit Spotify verbunden.';
+        state.resumeAfterReconnect = false;
+      } catch (error) {
+        if (state.phase === 'playing' && state.round && !state.round.lock) state.transportPaused = true;
+        throw error;
+      } finally {
+        state.reconnectInFlight = false;
+      }
     }
 
     function playerById(id) {
@@ -786,14 +951,21 @@
         if (ours && snapshot.positionMs < 5000) {
           round.seenOwnTrack = true;
           round.unconfirmed = false;
-          if (snapshot.positionMs > (round.highPos || 0)) round.highPos = snapshot.positionMs;
+          notePosition(round, snapshot);
         }
         return false;
       }
       if (ours) {
         round.seenOwnTrack = true;
         round.unconfirmed = false;
-        if (snapshot.positionMs > (round.highPos || 0)) round.highPos = snapshot.positionMs;
+        if (round.holdEnd) {
+          round.holdEnd = false;
+          round.highPos = Number(snapshot.positionMs) || 0;
+          round.positionMs = round.highPos;
+          return false;
+        }
+        notePosition(round, snapshot);
+        if (endSuppressed()) return false;
         const knownDuration = round.durationMs || duration;
         if (endedByPosition(snapshot.positionMs, knownDuration, snapshot)) {
           resolveNaturalEnd();
@@ -805,6 +977,7 @@
         }
         return false;
       }
+      if (round.holdEnd || endSuppressed()) return false;
       if (!uri && round.seenOwnTrack && snapshot.paused && round.durationMs && round.highPos >= round.durationMs - 2000) {
         resolveNaturalEnd();
         return true;
@@ -835,8 +1008,9 @@
     function paintBanners() {
       const error = document.getElementById('errorBanner');
       if (error) {
-        error.hidden = !state.error;
-        error.textContent = state.error || '';
+        const text = shownError();
+        error.hidden = !text;
+        error.textContent = text;
       }
     }
 
@@ -947,6 +1121,9 @@
       }
       await withBusy(async () => {
         await ensureReady();
+        state.dropNoted = false;
+        state.resumeAfterReconnect = false;
+        state.playbackGraceUntil = 0;
         state.phase = 'dj';
         state.djId = null;
         state.round = null;
@@ -1037,6 +1214,7 @@
           durationMs: (playback && playback.track && playback.track.durationMs) || picked.durationMs || 0,
           seenOwnTrack: Boolean(playback && playback.track && sameTrack(playback.track.uri, picked.uri)),
           highPos: 0,
+          positionMs: playback ? (Number(playback.positionMs) || 0) : 0,
           lock: false,
           startedAt: Date.now(),
           unconfirmed: false,
@@ -1046,6 +1224,7 @@
         state.songsStarted += 1;
         rememberStarted(picked);
         state.transportPaused = Boolean(playback && playback.paused);
+        state.resumeAfterReconnect = false;
         state.notice = '';
         state.info = '';
         state.results = [];
@@ -1060,6 +1239,7 @@
       playBuzzBeep();
       round.lock = true;
       stopPoll();
+      state.resumeAfterReconnect = false;
       state.phase = 'guess';
       state.guesserId = null;
       state.notice = '';
@@ -1076,13 +1256,16 @@
     async function resumeTransport() {
       if (state.phase !== 'playing' || !state.round || state.round.lock) return;
       try {
-        await requireApi().resume();
-        state.transportPaused = false;
+        state.resumeAfterReconnect = false;
+        await restorePlayback();
         state.error = '';
         paintTransport();
         paintBanners();
       } catch (error) {
+        state.transportPaused = true;
+        state.resumeAfterReconnect = true;
         presentError(error);
+        paintTransport();
         paintBanners();
       }
     }
@@ -1148,9 +1331,11 @@
       render();
       startPoll();
       try {
-        await requireApi().resume();
+        await restorePlayback();
+        paintTransport();
       } catch (error) {
         state.transportPaused = true;
+        state.resumeAfterReconnect = true;
         presentError(error);
         paintTransport();
         paintBanners();
@@ -1166,9 +1351,11 @@
       render();
       startPoll();
       try {
-        await requireApi().resume();
+        await restorePlayback();
+        paintTransport();
       } catch (error) {
         state.transportPaused = true;
+        state.resumeAfterReconnect = true;
         presentError(error);
         paintTransport();
         paintBanners();
@@ -1239,11 +1426,14 @@
       stopPoll();
       clearVisibleRecommendations();
       if (state.round) state.round.lock = true;
+      state.phase = 'final';
+      state.resumeAfterReconnect = false;
+      state.dropNoted = false;
+      persistGame();
       const api = spotifyApi();
       if (api) {
         try { await api.stop(); } catch (error) { presentError(error); }
       }
-      state.phase = 'final';
       render();
     }
 
@@ -1263,14 +1453,31 @@
       state.info = '';
       state.error = '';
       state.confirmEnd = false;
+      state.resumeAfterReconnect = false;
+      state.dropNoted = false;
+      state.playbackGraceUntil = 0;
       render();
     }
 
+    function shownError() {
+      if (state.error && spotifyDropped() && connectionProblem(state.error)) return '';
+      return state.error || '';
+    }
+
     function bannersHtml() {
+      const error = shownError();
       return `
-        <div id="errorBanner" class="banner error" ${state.error ? '' : 'hidden'}>${esc(state.error)}</div>
+        <div id="errorBanner" class="banner error" ${error ? '' : 'hidden'}>${esc(error)}</div>
         <div id="infoBanner" class="banner info" ${state.info ? '' : 'hidden'}>${esc(state.info)}</div>
       `;
+    }
+
+    function reconnectHtml() {
+      if (!spotifyDropped()) return '';
+      return `<div id="spotifyReconnect" class="banner warn stack">
+        <p>Spotify ist nicht verbunden. Die Runde bleibt offen.</p>
+        <button type="button" class="btn" data-action="reconnect" ${state.busy ? 'disabled' : ''}>Verbinden</button>
+      </div>`;
     }
 
     function scoreboardHtml() {
@@ -1358,6 +1565,7 @@
       return `${headerHtml()}
         <div class="stack">
           ${bannersHtml()}
+        ${reconnectHtml()}
           <p class="lead">Ein Handy, eine Runde, eine Box. Alle tragen sich ein. Der DJ sucht den Song, die anderen raten. Der Ton kommt aus der Spotify-App über den Lautsprecher.</p>
           ${spotifyCardHtml()}
           <section class="card stack">
@@ -1389,6 +1597,7 @@
       const choices = state.players.map((player) => `<button type="button" class="choice${player.id === state.djId ? ' selected' : ''}" data-action="select-dj" data-id="${player.id}">${esc(player.name)}</button>`).join('');
       return `${headerHtml()}<div class="stack">
         ${bannersHtml()}
+        ${reconnectHtml()}
         ${scoreboardHtml()}
         <section class="stack">
           <h2>Wer ist der DJ?</h2>
@@ -1422,6 +1631,7 @@
       const searchLocked = state.busy || state.recsLoading;
       return `${headerHtml()}<div class="stack">
         ${bannersHtml()}
+        ${reconnectHtml()}
         ${scoreboardHtml()}
         <section class="stack">
           <h2>Song aussuchen</h2>
@@ -1443,6 +1653,7 @@
       const dj = state.round && playerById(state.round.djId);
       return `${headerHtml()}<div class="stack">
         ${bannersHtml()}
+        ${reconnectHtml()}
         ${scoreboardHtml()}
         ${state.notice ? `<div class="banner info">${esc(state.notice)}</div>` : ''}
         <section class="stage">
@@ -1472,6 +1683,7 @@
       const selected = playerById(state.guesserId);
       return `${headerHtml()}<div class="stack">
         ${bannersHtml()}
+        ${reconnectHtml()}
         ${scoreboardHtml()}
         <section class="stack">
           <h2>Wer hat geraten?</h2>
@@ -1489,6 +1701,7 @@
     function renderEndedAsk() {
       return `${headerHtml()}<div class="stack">
         ${bannersHtml()}
+        ${reconnectHtml()}
         ${scoreboardHtml()}
         <section class="stack">
           <h2>Der Song ist zu Ende.</h2>
@@ -1503,6 +1716,7 @@
       const selected = playerById(state.guesserId);
       return `${headerHtml()}<div class="stack">
         ${bannersHtml()}
+        ${reconnectHtml()}
         ${scoreboardHtml()}
         <section class="stack">
           <h2>Wer hat ihn erraten?</h2>
@@ -1523,6 +1737,7 @@
       if (round && round.outcome === 'ended-no') outcome = 'Nicht erraten. ' + (dj ? dj.name : 'Der DJ') + ' bekommt −3.';
       return `${headerHtml()}<div class="stack">
         ${bannersHtml()}
+        ${reconnectHtml()}
         ${scoreboardHtml()}
         <section class="card stack">
           <p class="eyebrow">Auflösung</p>
@@ -1542,6 +1757,7 @@
       const winner = top && tied.length === 1 ? top.name + ' gewinnt.' : 'Gleichstand an der Spitze.';
       return `${headerHtml()}<div class="stack">
         ${bannersHtml()}
+        ${reconnectHtml()}
         <section class="card">
           <h2>Endstand</h2>
           <p class="lead">${state.players.length ? esc(winner) : 'Keine Mitspieler.'}</p>
@@ -1566,6 +1782,103 @@
       };
       const view = views[state.phase] || renderSetup;
       app.innerHTML = view() + modalHtml();
+      persistGame();
+    }
+
+    function persistGame() {
+      try {
+        if (!inGame()) {
+          localStorage.removeItem(SAVE_KEY);
+          return;
+        }
+        const snapshot = { v: 1 };
+        SAVE_FIELDS.forEach((key) => {
+          if (state[key] !== undefined) snapshot[key] = state[key];
+        });
+        localStorage.setItem(SAVE_KEY, JSON.stringify(snapshot));
+      } catch (error) {
+        // Speicher kann voll oder gesperrt sein. Das laufende Spiel bleibt davon unberührt.
+      }
+    }
+
+    function asText(value) {
+      return typeof value === 'string' ? value : '';
+    }
+
+    function restorePlayers(list) {
+      if (!Array.isArray(list)) return [];
+      return list.map((player) => ({
+        id: Number(player && player.id),
+        name: asText(player && player.name).trim().slice(0, 24),
+        score: Number(player && player.score) || 0
+      })).filter((player) => player.id && player.name);
+    }
+
+    function restoreTracks(list) {
+      if (!Array.isArray(list)) return [];
+      return list.filter((track) => track && typeof track === 'object' && trackUriOf(track).indexOf('spotify:track:') === 0);
+    }
+
+    function validRound(round, players) {
+      if (!round || typeof round !== 'object') return false;
+      if (trackUriOf(round.uri).indexOf('spotify:track:') !== 0) return false;
+      return players.some((player) => player.id === round.djId);
+    }
+
+    function restoreGame() {
+      let saved = null;
+      try {
+        const raw = localStorage.getItem(SAVE_KEY);
+        if (!raw) return false;
+        saved = JSON.parse(raw);
+      } catch (error) {
+        try { localStorage.removeItem(SAVE_KEY); } catch (ignore) {}
+        return false;
+      }
+      if (!saved || typeof saved !== 'object' || !inGamePhase(saved.phase)) {
+        try { localStorage.removeItem(SAVE_KEY); } catch (ignore) {}
+        return false;
+      }
+      const players = restorePlayers(saved.players);
+      if (players.length < 2) {
+        try { localStorage.removeItem(SAVE_KEY); } catch (ignore) {}
+        return false;
+      }
+      state.players = players;
+      const maxId = players.reduce((max, player) => Math.max(max, player.id), 0);
+      state.nextId = Math.max(Number(saved.nextId) || 1, maxId + 1);
+      state.djId = players.some((player) => player.id === saved.djId) ? saved.djId : null;
+      state.round = validRound(saved.round, players) ? saved.round : null;
+      state.picked = saved.picked && trackUriOf(saved.picked).indexOf('spotify:track:') === 0 ? saved.picked : null;
+      state.results = restoreTracks(saved.results);
+      state.draftName = asText(saved.draftName).slice(0, 24);
+      state.draftQuery = asText(saved.draftQuery).slice(0, 200);
+      state.guesserId = players.some((player) => player.id === saved.guesserId) ? saved.guesserId : null;
+      state.error = asText(saved.error);
+      state.info = asText(saved.info);
+      state.notice = asText(saved.notice);
+      state.confirmEnd = Boolean(saved.confirmEnd);
+      state.transportPaused = Boolean(saved.transportPaused);
+      state.songsStarted = Math.max(0, Number(saved.songsStarted) || 0);
+      state.startedUris = Array.isArray(saved.startedUris) ? saved.startedUris : [];
+      if (Array.isArray(saved.shownRecommendationUris)) state.shownRecommendationUris = saved.shownRecommendationUris;
+      if (Array.isArray(saved.recommendations)) state.recommendations = restoreTracks(saved.recommendations);
+      state.recsLoading = false;
+      state.recsReady = Boolean(saved.recsReady);
+      state.recsNote = asText(saved.recsNote);
+      state.busy = false;
+      state.phase = saved.phase;
+      const roundPhases = ['playing', 'guess', 'endedAsk', 'endedWho', 'reveal'];
+      if (roundPhases.indexOf(state.phase) !== -1 && !state.round) {
+        state.phase = state.djId ? 'search' : 'dj';
+      }
+      if (state.phase === 'search' && !state.djId) state.phase = 'dj';
+      if (state.phase === 'playing' && state.round) {
+        state.round.holdEnd = true;
+        if (!state.round.lock && !state.transportPaused) state.resumeAfterReconnect = true;
+      }
+      state.dropNoted = spotifyDropped();
+      return true;
     }
 
     function onClick(event) {
@@ -1574,6 +1887,7 @@
       const action = button.dataset.action;
       if (action === 'remove-player') removePlayer(Number(button.dataset.id));
       if (action === 'start') startGame();
+      if (action === 'reconnect') withBusy(reconnectInGame);
       if (action === 'refresh') withBusy(loadSpotifyStatus);
       if (action === 'login') withBusy(async () => { await requireClient(); await requireApi().login(); await loadSpotifyStatus(); state.info = 'Anmeldung abgeschlossen.'; });
       if (action === 'connect') withBusy(async () => {
@@ -1626,7 +1940,10 @@
       });
       app.addEventListener('input', (event) => {
         if (event.target.id === 'playerName') state.draftName = event.target.value;
-        if (event.target.id === 'searchQuery') state.draftQuery = event.target.value;
+        if (event.target.id === 'searchQuery') {
+          state.draftQuery = event.target.value;
+          persistGame();
+        }
       });
     }
 
@@ -1641,25 +1958,48 @@
           else paintBanners();
         });
         api.events.on('spotify.disconnected', () => {
-          if (state.spotify.availability) state.spotify.availability.connected = false;
+          noteSpotifyDrop();
           presentError('Verbindung zu Spotify getrennt.');
           render();
         });
         api.events.on('spotify.connected', () => {
-          loadSpotifyStatus().then(() => render()).catch((error) => { presentError(error); render(); });
+          if (state.reconnectInFlight) armPlaybackGrace(8000);
+          loadSpotifyStatus().then(() => {
+            if (state.spotify.availability && state.spotify.availability.connected && connectionProblem(state.error)) {
+              state.error = '';
+            }
+            render();
+          }).catch((error) => { presentError(error); render(); });
         });
       } catch (error) {
         presentError(error);
       }
     }
 
+    function afterStatus() {
+      if (state.spotify.availability && state.spotify.availability.connected) {
+        if (connectionProblem(state.error)) state.error = '';
+        state.dropNoted = false;
+        if (!state.reconnectInFlight) state.resumeAfterReconnect = false;
+      } else if (inGame() && state.spotify.availability && state.spotify.availability.connected === false) {
+        noteSpotifyDrop();
+      }
+      if (state.phase === 'playing' && state.round && !state.round.lock) startPoll();
+      render();
+    }
+
     function init() {
       bind();
       subscribe();
+      restoreGame();
+      window.addEventListener('pagehide', persistGame);
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'hidden') persistGame();
+      });
       if (spotifyApi()) {
-        loadSpotifyStatus().then(() => render()).catch((error) => { presentError(error); render(); });
+        loadSpotifyStatus().then(afterStatus).catch((error) => { presentError(error); afterStatus(); });
       } else {
-        render();
+        afterStatus();
       }
     }
 
