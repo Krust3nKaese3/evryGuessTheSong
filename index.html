@@ -211,8 +211,15 @@
       transportPaused: false,
       songsStarted: 0,
       startedUris: [],
+      shownRecommendationUris: [],
+      recommendations: [],
+      recsLoading: false,
+      recsReady: false,
+      recsNote: '',
       spotify: { client: null, availability: null }
     };
+
+    let recsToken = 0;
 
     const app = document.getElementById('app');
 
@@ -306,29 +313,89 @@
       return state.djId;
     }
 
-    function sameTrack(a, b) {
-      if (!a || !b) return false;
-      if (a === b) return true;
+    function trackUriOf(value) {
+      if (!value) return '';
+      if (typeof value === 'string') return value;
+      if (typeof value === 'object' && value.uri) return String(value.uri);
+      return '';
+    }
+
+    function sameId(a, b, kind) {
+      const leftUri = trackUriOf(a);
+      const rightUri = trackUriOf(b);
+      if (!leftUri || !rightUri) return false;
+      if (leftUri === rightUri) return true;
       const id = (uri) => {
-        const match = String(uri).match(/spotify:track:([A-Za-z0-9]+)/);
+        const match = String(uri).match(new RegExp('spotify:' + kind + ':([A-Za-z0-9]+)'));
         return match ? match[1] : '';
       };
-      const left = id(a);
-      const right = id(b);
+      const left = id(leftUri);
+      const right = id(rightUri);
       return Boolean(left && left === right);
+    }
+
+    function sameTrack(a, b) {
+      return sameId(a, b, 'track');
+    }
+
+    function sameArtist(a, b) {
+      return sameId(a, b, 'artist');
     }
 
     function trackWasStarted(uri) {
       return state.startedUris.some((started) => sameTrack(started, uri));
     }
 
-    function rememberStarted(uri) {
+    function cloneArtists(list) {
+      if (!Array.isArray(list)) return [];
+      return list.map((artist) => {
+        if (!artist) return null;
+        if (typeof artist === 'string') return { name: artist, uri: '' };
+        const name = artist.name ? String(artist.name) : '';
+        const uri = artist.uri ? String(artist.uri) : '';
+        if (!name && !uri) return null;
+        return { name, uri };
+      }).filter(Boolean);
+    }
+
+    function rememberStarted(track) {
+      const uri = trackUriOf(track);
       if (!uri || trackWasStarted(uri)) return;
-      state.startedUris.push(uri);
+      const source = track && typeof track === 'object' ? track : {};
+      let artists = cloneArtists(source.artists);
+      if (!artists.length && source.artist) {
+        artists = String(source.artist).split(',').map((name) => ({ name: name.trim(), uri: '' })).filter((artist) => artist.name);
+      }
+      state.startedUris.push({
+        uri,
+        title: source.title || source.name || '',
+        artists
+      });
     }
 
     function forgetStarted(uri) {
       state.startedUris = state.startedUris.filter((started) => !sameTrack(started, uri));
+    }
+
+    function recommendationWasShown(uri) {
+      return state.shownRecommendationUris.some((shown) => sameTrack(shown, uri));
+    }
+
+    function recommendationBlocked(uri) {
+      return trackWasStarted(uri) || recommendationWasShown(uri);
+    }
+
+    function rememberShown(uri) {
+      if (!uri || recommendationWasShown(uri)) return;
+      state.shownRecommendationUris.push(uri);
+    }
+
+    function clearVisibleRecommendations() {
+      recsToken += 1;
+      state.recommendations = [];
+      state.recsReady = false;
+      state.recsLoading = false;
+      state.recsNote = '';
     }
 
     function artistLine(item) {
@@ -358,17 +425,293 @@
       };
     }
 
+    function asObject(value) {
+      if (typeof value === 'string') {
+        try { return JSON.parse(value); } catch (e) { return null; }
+      }
+      return value;
+    }
+
     function normalizeTracks(found) {
+      const payload = asObject(found);
       let items = [];
-      if (found && found.tracks && Array.isArray(found.tracks.items)) items = found.tracks.items;
-      else if (found && Array.isArray(found.tracks)) items = found.tracks;
+      if (payload && payload.tracks && Array.isArray(payload.tracks.items)) items = payload.tracks.items;
+      else if (payload && Array.isArray(payload.tracks)) items = payload.tracks;
       return items.map((item) => ({
         uri: item.uri,
         title: item.name || 'Unbekannter Titel',
         artist: artistLine(item) || 'Unbekannter Interpret',
+        artists: cloneArtists(item.artists),
         album: typeof item.album === 'string' ? item.album : (item.album && item.album.name) || '',
         durationMs: Number(item.durationMs || item.duration_ms) || 0
       })).filter((item) => item.uri && String(item.uri).indexOf('spotify:track:') === 0);
+    }
+
+    function normalizeArtistHits(found) {
+      const payload = asObject(found);
+      let items = [];
+      if (payload && payload.artists && Array.isArray(payload.artists.items)) items = payload.artists.items;
+      else if (payload && Array.isArray(payload.artists)) items = payload.artists;
+      return items.map((item) => ({
+        uri: item.uri || '',
+        name: item.name || '',
+        genres: Array.isArray(item.genres) ? item.genres.map((genre) => {
+          if (typeof genre === 'string') return genre.trim();
+          return genre && genre.name ? String(genre.name).trim() : '';
+        }).filter(Boolean) : []
+      })).filter((item) => item.uri || item.name);
+    }
+
+    function plainQuery(value) {
+      const clean = String(value || '').replace(/\s+/g, ' ').trim();
+      if (!clean) return '';
+      return clean.length > 200 ? clean.slice(0, 200) : clean;
+    }
+
+    function fieldQuery(field, value) {
+      const clean = String(value || '').replace(/["\\]/g, ' ').replace(/\s+/g, ' ').trim();
+      if (!clean) return '';
+      const prefix = field + ':"';
+      const room = 200 - prefix.length - 1;
+      if (room < 1) return '';
+      return prefix + clean.slice(0, room) + '"';
+    }
+
+    function seedArtists() {
+      const list = [];
+      state.startedUris.forEach((seed) => {
+        const artists = Array.isArray(seed.artists) ? seed.artists : [];
+        artists.forEach((artist) => {
+          const name = artist && artist.name ? String(artist.name).trim() : '';
+          const uri = artist && artist.uri ? String(artist.uri) : '';
+          if (!name && !uri) return;
+          const known = list.find((item) => {
+            if (uri && item.uri && sameArtist(item, artist)) return true;
+            if (!uri && !item.uri && name && item.name.toLowerCase() === name.toLowerCase()) return true;
+            return false;
+          });
+          if (known) {
+            if (!known.uri && uri) known.uri = uri;
+            if (!known.name && name) known.name = name;
+            return;
+          }
+          list.push({ name, uri });
+        });
+      });
+      return list.filter((artist) => artist.name);
+    }
+
+    function matchSeedArtist(hits, artist) {
+      if (artist.uri) return hits.find((hit) => hit.uri && sameArtist(hit, artist)) || null;
+      if (!artist.name) return null;
+      const name = artist.name.toLowerCase();
+      return hits.find((hit) => hit.name && hit.name.toLowerCase() === name) || null;
+    }
+
+    function trackMatchesArtist(track, artist) {
+      const list = Array.isArray(track.artists) ? track.artists : [];
+      if (artist.uri && list.some((item) => item.uri && sameArtist(item, artist))) return true;
+      const hasUris = Boolean(artist.uri) && list.some((item) => item.uri);
+      if (hasUris) return false;
+      if (!artist.name) return false;
+      const name = artist.name.toLowerCase();
+      if (list.some((item) => item.name && item.name.toLowerCase() === name)) return true;
+      return String(track.artist || '').split(',').some((part) => part.trim().toLowerCase() === name);
+    }
+
+    function uniqueTracks(tracks) {
+      const out = [];
+      tracks.forEach((track) => {
+        if (!track || !track.uri || recommendationBlocked(track.uri)) return;
+        if (out.some((item) => sameTrack(item, track))) return;
+        out.push(track);
+      });
+      return out;
+    }
+
+    function roundRobin(groups) {
+      const out = [];
+      const cursors = groups.map(() => 0);
+      let moved = true;
+      while (moved) {
+        moved = false;
+        for (let i = 0; i < groups.length; i++) {
+          const group = groups[i] || [];
+          if (cursors[i] < group.length) {
+            out.push(group[cursors[i]]);
+            cursors[i] += 1;
+            moved = true;
+          }
+        }
+      }
+      return out;
+    }
+
+    function spreadGenres(lists) {
+      const out = [];
+      const seen = [];
+      let layer = 0;
+      while (out.length < 8 && layer < 12) {
+        let added = false;
+        for (let i = 0; i < lists.length; i++) {
+          const genre = lists[i] && lists[i][layer];
+          if (!genre) continue;
+          const key = genre.toLowerCase();
+          if (seen.indexOf(key) !== -1) continue;
+          seen.push(key);
+          out.push(genre);
+          added = true;
+          if (out.length >= 8) break;
+        }
+        if (!added) break;
+        layer += 1;
+      }
+      return out;
+    }
+
+    function artistVarietyKey(track) {
+      const artists = Array.isArray(track.artists) ? track.artists : [];
+      for (let i = 0; i < artists.length; i++) {
+        if (artists[i] && artists[i].uri) return artists[i].uri;
+      }
+      for (let i = 0; i < artists.length; i++) {
+        if (artists[i] && artists[i].name) return 'name:' + artists[i].name.toLowerCase();
+      }
+      if (track.artist) return 'line:' + String(track.artist).toLowerCase();
+      return track.uri || '';
+    }
+
+    function chooseRecommendationTracks(artistGroups, genreTracks) {
+      const mixed = [];
+      const artistOrdered = roundRobin(artistGroups);
+      const genres = genreTracks || [];
+      let ai = 0;
+      let gi = 0;
+      while (ai < artistOrdered.length || gi < genres.length) {
+        if (ai < artistOrdered.length) mixed.push(artistOrdered[ai++]);
+        if (gi < genres.length) mixed.push(genres[gi++]);
+      }
+      const unique = [];
+      mixed.forEach((track) => {
+        if (!track || !track.uri) return;
+        if (unique.some((item) => sameTrack(item, track))) return;
+        unique.push(track);
+      });
+      const keys = unique.map(artistVarietyKey);
+      const distinct = [];
+      keys.forEach((key) => {
+        if (distinct.indexOf(key) === -1) distinct.push(key);
+      });
+      const picked = [];
+      const used = [];
+      const deferred = [];
+      for (let i = 0; i < unique.length && picked.length < 3; i++) {
+        const key = keys[i];
+        if (used.indexOf(key) !== -1 && used.length < distinct.length) {
+          deferred.push(unique[i]);
+          continue;
+        }
+        picked.push(unique[i]);
+        if (used.indexOf(key) === -1) used.push(key);
+      }
+      deferred.forEach((track) => {
+        if (picked.length >= 3) return;
+        if (picked.some((item) => sameTrack(item, track))) return;
+        picked.push(track);
+      });
+      return picked.slice(0, 3);
+    }
+
+    async function mapPool(items, limit, fn) {
+      const results = new Array(items.length);
+      let cursor = 0;
+      const count = Math.min(limit, items.length);
+      const workers = [];
+      for (let worker = 0; worker < count; worker++) {
+        workers.push((async () => {
+          while (cursor < items.length) {
+            const index = cursor;
+            cursor += 1;
+            results[index] = await fn(items[index], index);
+          }
+        })());
+      }
+      await Promise.all(workers);
+      return results;
+    }
+
+    async function buildRecommendations() {
+      const artists = seedArtists();
+      if (!artists.length) return [];
+      let anyOk = false;
+      let lastError = null;
+      async function searchSafe(query, types, limit) {
+        if (!query || query.length > 200) return null;
+        try {
+          const found = await requireApi().search(query, { types: types, limit: limit });
+          anyOk = true;
+          return found;
+        } catch (error) {
+          lastError = error;
+          return null;
+        }
+      }
+      const artistResults = await mapPool(artists, 3, async (artist) => {
+        const foundTracks = await searchSafe(fieldQuery('artist', artist.name), ['track'], 10);
+        const tracks = foundTracks
+          ? uniqueTracks(normalizeTracks(foundTracks).filter((track) => trackMatchesArtist(track, artist)))
+          : [];
+        const foundArtists = await searchSafe(plainQuery(artist.name), ['artist'], 10);
+        const match = foundArtists ? matchSeedArtist(normalizeArtistHits(foundArtists), artist) : null;
+        const genres = match && match.genres ? match.genres.slice(0, 3) : [];
+        return { tracks, genres };
+      });
+      const genres = spreadGenres(artistResults.map((result) => result.genres || []));
+      const genreGroups = await mapPool(genres, 3, async (genre) => {
+        const found = await searchSafe(fieldQuery('genre', genre), ['track'], 10);
+        return found ? uniqueTracks(normalizeTracks(found)) : [];
+      });
+      if (!anyOk) {
+        if (lastError) throw lastError;
+        return [];
+      }
+      return chooseRecommendationTracks(artistResults.map((result) => result.tracks || []), roundRobin(genreGroups));
+    }
+
+    async function loadRecommendations() {
+      if (state.recsLoading || state.recsReady) return;
+      if (!state.startedUris.length) {
+        state.recommendations = [];
+        state.recsNote = 'Empfehlungen erst nach dem ersten Song gehen.';
+        render();
+        return;
+      }
+      const token = recsToken;
+      const djAtStart = state.djId;
+      state.recsLoading = true;
+      state.recsNote = '';
+      state.recommendations = [];
+      state.error = '';
+      render();
+      try {
+        await ensureReady();
+        const picks = await buildRecommendations();
+        if (token !== recsToken || state.phase !== 'search' || state.djId !== djAtStart) return;
+        picks.forEach((track) => rememberShown(track.uri));
+        state.recommendations = picks;
+        state.recsReady = true;
+        state.recsNote = picks.length ? '' : 'Keine passenden Empfehlungen.';
+      } catch (error) {
+        if (token !== recsToken || state.phase !== 'search' || state.djId !== djAtStart) return;
+        state.recommendations = [];
+        state.recsReady = false;
+        presentError(error);
+      } finally {
+        if (token === recsToken) {
+          state.recsLoading = false;
+          render();
+        }
+      }
     }
 
     function formatMs(ms) {
@@ -594,6 +937,7 @@
       state.picked = null;
       state.results = [];
       state.draftQuery = '';
+      clearVisibleRecommendations();
       state.phase = 'search';
       state.error = '';
       state.info = 'Nur der DJ schaut auf diese Seite. Hier stehen Titel und Interpret.';
@@ -611,13 +955,19 @@
         await ensureReady();
         const found = await requireApi().search(query, { types: ['track'], limit: 8 });
         state.results = normalizeTracks(found);
-        state.picked = state.results.some((track) => state.picked && track.uri === state.picked.uri) ? state.picked : null;
+        const stillVisible = state.picked && (
+          state.results.some((track) => sameTrack(track, state.picked))
+          || state.recommendations.some((track) => sameTrack(track, state.picked))
+        );
+        state.picked = stillVisible ? state.picked : null;
         state.info = state.results.length ? 'Tipp einen Song an und dann auf Los.' : 'Nichts gefunden. Versuch einen anderen Suchbegriff.';
       });
     }
 
     function pickTrack(uri) {
-      state.picked = state.results.find((track) => track.uri === uri) || null;
+      state.picked = state.results.find((track) => sameTrack(track, uri))
+        || state.recommendations.find((track) => sameTrack(track, uri))
+        || null;
       if (state.error === ALREADY_STARTED) state.error = '';
       render();
     }
@@ -662,7 +1012,7 @@
           outcomeWho: ''
         };
         state.songsStarted += 1;
-        rememberStarted(picked.uri);
+        rememberStarted(picked);
         state.transportPaused = Boolean(playback && playback.paused);
         state.notice = '';
         state.info = '';
@@ -835,6 +1185,7 @@
 
     function nextDj() {
       stopPoll();
+      clearVisibleRecommendations();
       state.phase = 'dj';
       state.djId = null;
       state.picked = null;
@@ -853,6 +1204,7 @@
     async function finishGame() {
       state.confirmEnd = false;
       stopPoll();
+      clearVisibleRecommendations();
       if (state.round) state.round.lock = true;
       const api = spotifyApi();
       if (api) {
@@ -872,6 +1224,8 @@
       state.guesserId = null;
       state.songsStarted = 0;
       state.startedUris = [];
+      state.shownRecommendationUris = [];
+      clearVisibleRecommendations();
       state.notice = '';
       state.info = '';
       state.error = '';
@@ -1012,16 +1366,27 @@
       </div>`;
     }
 
+    function trackButtonHtml(track) {
+      const duration = formatMs(track.durationMs);
+      const meta = [track.artist, track.album, duration].filter(Boolean).join(' · ');
+      const selected = state.picked && sameTrack(state.picked, track);
+      const started = trackWasStarted(track.uri);
+      return `<button type="button" class="track${selected ? ' selected' : ''}${started ? ' started' : ''}" data-action="pick-track" data-uri="${esc(track.uri)}"><span><span class="track-title">${esc(track.title)}</span><span class="track-meta">${esc(meta)}</span></span>${started ? '<span class="played-tag">Schon an</span>' : ''}</button>`;
+    }
+
+    function recommendationsHtml() {
+      if (state.recsLoading || !state.recommendations.length) {
+        if (!state.recsLoading && state.recsNote) return `<p class="hint" data-recs-note>${esc(state.recsNote)}</p>`;
+        return '';
+      }
+      return `<div class="stack" data-recs><p class="eyebrow">Empfehlungen</p>${state.recommendations.map(trackButtonHtml).join('')}</div>`;
+    }
+
     function renderSearch() {
       const premiumBlocked = state.spotify.availability && state.spotify.availability.premium === false;
       const dj = playerById(state.djId);
-      const results = state.results.map((track) => {
-        const duration = formatMs(track.durationMs);
-        const meta = [track.artist, track.album, duration].filter(Boolean).join(' · ');
-        const selected = state.picked && state.picked.uri === track.uri;
-        const started = trackWasStarted(track.uri);
-        return `<button type="button" class="track${selected ? ' selected' : ''}${started ? ' started' : ''}" data-action="pick-track" data-uri="${esc(track.uri)}"><span><span class="track-title">${esc(track.title)}</span><span class="track-meta">${esc(meta)}</span></span>${started ? '<span class="played-tag">Schon an</span>' : ''}</button>`;
-      }).join('');
+      const results = state.results.map(trackButtonHtml).join('');
+      const searchLocked = state.busy || state.recsLoading;
       return `${headerHtml()}<div class="stack">
         ${bannersHtml()}
         ${scoreboardHtml()}
@@ -1030,9 +1395,11 @@
           <p class="hint">DJ: ${esc(dj ? dj.name : '')}. Nur du solltest diese Liste sehen.</p>
           <form class="stack" data-action="search">
             <input id="searchQuery" type="text" placeholder="Titel oder Interpret" autocomplete="off" value="${esc(state.draftQuery)}" aria-label="Suche">
-            <button class="btn secondary" type="submit" ${state.busy ? 'disabled' : ''}>Suchen</button>
+            <button class="btn secondary" type="submit" ${searchLocked ? 'disabled' : ''}>Suchen</button>
           </form>
-          ${results || '<p class="hint">Noch keine Treffer.</p>'}
+          <button type="button" class="btn secondary" data-action="recommendations" ${searchLocked ? 'disabled' : ''}>${state.recsLoading ? 'Lädt …' : 'Empfehlungen'}</button>
+          ${recommendationsHtml()}
+          ${results || (state.recommendations.length ? '' : '<p class="hint">Noch keine Treffer.</p>')}
           ${premiumBlocked ? `<div class="banner error">${esc(NOT_PREMIUM)}</div>` : ''}
           <button type="button" class="btn" data-action="los" ${state.busy || !state.picked || premiumBlocked ? 'disabled' : ''}>Los</button>
         </section>
@@ -1193,6 +1560,7 @@
       });
       if (action === 'select-dj') selectDj(Number(button.dataset.id));
       if (action === 'confirm-dj') confirmDj();
+      if (action === 'recommendations') loadRecommendations();
       if (action === 'pick-track') pickTrack(button.dataset.uri);
       if (action === 'los') los();
       if (action === 'buzz') buzz();
