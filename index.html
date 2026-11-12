@@ -92,6 +92,18 @@
       gap: 10px;
     }
     .choice.selected, .track.selected { border-color: #ffb089; background: rgba(255, 176, 137, 0.14); }
+    .track.started { border-color: rgba(255, 224, 138, 0.55); }
+    .played-tag {
+      flex: 0 0 auto;
+      background: #ffe08a;
+      color: #332000;
+      border-radius: 999px;
+      padding: 4px 8px;
+      font-size: 12px;
+      font-weight: 800;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
     .player-name, .track-title { font-size: 18px; font-weight: 800; }
     .track-meta { display: block; color: #f0d2c8; font-size: 14px; font-weight: 600; margin-top: 2px; }
     .icon-btn {
@@ -178,6 +190,7 @@
     const NO_CLIENT_ID = 'Keine Spotify Client ID hinterlegt. Bitte in den EveryApp-Einstellungen eintragen.';
     const NOT_INSTALLED = 'Spotify ist nicht installiert. Bitte die Spotify-App aus dem Play Store installieren und dich dort anmelden.';
     const NOT_PREMIUM = 'Dieser Spotify-Account hat kein Premium. Einen bestimmten Song abspielen geht nur mit Premium.';
+    const ALREADY_STARTED = 'Song war schon an.';
 
     const state = {
       phase: 'setup',
@@ -197,6 +210,7 @@
       confirmEnd: false,
       transportPaused: false,
       songsStarted: 0,
+      startedUris: [],
       spotify: { client: null, availability: null }
     };
 
@@ -302,6 +316,19 @@
       const left = id(a);
       const right = id(b);
       return Boolean(left && left === right);
+    }
+
+    function trackWasStarted(uri) {
+      return state.startedUris.some((started) => sameTrack(started, uri));
+    }
+
+    function rememberStarted(uri) {
+      if (!uri || trackWasStarted(uri)) return;
+      state.startedUris.push(uri);
+    }
+
+    function forgetStarted(uri) {
+      state.startedUris = state.startedUris.filter((started) => !sameTrack(started, uri));
     }
 
     function artistLine(item) {
@@ -591,6 +618,7 @@
 
     function pickTrack(uri) {
       state.picked = state.results.find((track) => track.uri === uri) || null;
+      if (state.error === ALREADY_STARTED) state.error = '';
       render();
     }
 
@@ -598,6 +626,12 @@
       if (!state.picked || !playerById(state.djId)) return;
       if (state.spotify.availability && state.spotify.availability.premium === false) {
         presentError(NOT_PREMIUM);
+        render();
+        return;
+      }
+      if (trackWasStarted(state.picked.uri)) {
+        state.phase = 'search';
+        state.error = ALREADY_STARTED;
         render();
         return;
       }
@@ -628,6 +662,7 @@
           outcomeWho: ''
         };
         state.songsStarted += 1;
+        rememberStarted(picked.uri);
         state.transportPaused = Boolean(playback && playback.paused);
         state.notice = '';
         state.info = '';
@@ -694,6 +729,7 @@
       stopPoll();
       try { await requireApi().pause(); } catch (error) { presentError(error); }
       state.songsStarted = Math.max(0, state.songsStarted - 1);
+      forgetStarted(round.uri);
       state.round = null;
       state.phase = 'search';
       state.info = 'Der Song ist nicht angelaufen. Such noch einmal.';
@@ -835,6 +871,7 @@
       state.results = [];
       state.guesserId = null;
       state.songsStarted = 0;
+      state.startedUris = [];
       state.notice = '';
       state.info = '';
       state.error = '';
@@ -950,7 +987,7 @@
             <summary>Regeln kurz</summary>
             <ol>
               <li>DJ auswählen und bestätigen.</li>
-              <li>Song suchen und auf Los tippen. Er startet von vorne.</li>
+              <li>Song suchen und auf Los tippen. Er startet von vorne. Jeder Song nur einmal pro Spiel.</li>
               <li>Bei „Stopp“ den roten Buzzer drücken.</li>
               <li>Wer geraten hat (nicht der DJ), dann Ja oder Nein.</li>
               <li>Richtig +1 und Auflösung. Falsch −1, der Song läuft weiter.</li>
@@ -982,7 +1019,8 @@
         const duration = formatMs(track.durationMs);
         const meta = [track.artist, track.album, duration].filter(Boolean).join(' · ');
         const selected = state.picked && state.picked.uri === track.uri;
-        return `<button type="button" class="track${selected ? ' selected' : ''}" data-action="pick-track" data-uri="${esc(track.uri)}"><span><span class="track-title">${esc(track.title)}</span><span class="track-meta">${esc(meta)}</span></span></button>`;
+        const started = trackWasStarted(track.uri);
+        return `<button type="button" class="track${selected ? ' selected' : ''}${started ? ' started' : ''}" data-action="pick-track" data-uri="${esc(track.uri)}"><span><span class="track-title">${esc(track.title)}</span><span class="track-meta">${esc(meta)}</span></span>${started ? '<span class="played-tag">Schon an</span>' : ''}</button>`;
       }).join('');
       return `${headerHtml()}<div class="stack">
         ${bannersHtml()}
