@@ -1,0 +1,7 @@
+{
+  "name": "Song raten",
+  "version": "1.0.0",
+  "description": "Partyspiel auf einem Handy: Songs laufen über die Box, alle raten den Titel.",
+  "entrypoint": "index.html",
+  "permissions": ["spotify", "vibration"]
+}
