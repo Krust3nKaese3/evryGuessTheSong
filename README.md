@@ -37,12 +37,12 @@ Alle sitzen im Kreis. Ein Handy geht reihum. Gespielt wird, bis jemand auf **Spi
 
 Jede Runde:
 
-1. Wer das Handy hält, ist DJ. Zu Beginn jeder Runde wählt sich die Person aus der Liste und bestätigt das. Nach der Auflösung heißt es, das Handy weiterzugeben und den nächsten DJ ausdrücklich zu wählen.
+1. Wer das Handy hält, ist DJ. Zu Beginn jeder Runde wählt sich die Person aus der Liste und bestätigt das. Nach der Auflösung heißt es, das Handy weiterzugeben und den nächsten DJ ausdrücklich zu wählen. Ein falscher Name lässt sich mit **Zurück** zurücknehmen: auf der DJ-Wahl verschwindet die Markierung, nach **Ich bin der DJ** führt Zurück wieder zur Namensliste. Punkte und schon gestartete Songs bleiben. Dieselbe Taste steht bei **Wer hat geraten?** und bei **Wer hat ihn erraten?** und löscht dort die Markierung. Ist bei „Wer hat ihn erraten?“ noch niemand markiert, führt Zurück zurück zu „Wurde der Song erraten?“.
 2. Der DJ sucht einen Track und tippt auf **Los**. Der Song startet von vorne. Jeder Track darf in diesem Spiel nur einmal gestartet werden.
-3. Die anderen hören über die Box und rufen „Stopp“, wenn sie den Titel kennen. Der DJ tippt sofort auf den roten Buzzer. Die Wiedergabe pausiert, das Handy vibriert und piept einmal kurz.
+3. Die anderen hören über die Box und rufen „Stopp“, wenn sie den Titel kennen. Der DJ tippt sofort auf den roten Buzzer. Die Wiedergabe stoppt in dem Moment hart (`pause`, ohne Ausblendung und ohne Übergang). Das Handy vibriert. Erst wenn Spotify pausiert hat, spielt `buzzer.mp3`.
 4. Danach wird zuerst gewählt, **wer** geraten hat (alle außer dem aktuellen DJ), und dann **Ja** oder **Nein**.
-5. Richtig: diese Person bekommt **+1**. Titel und Interpret werden aufgelöst. Danach das Handy weitergeben.
-6. Falsch: diese Person bekommt **−1**, der Song läuft an der Pausestelle weiter. Es darf wieder auf Stopp geraten werden.
+5. Richtig: diese Person bekommt **+1**. Zuerst spielt `correct.mp3`. Danach läuft der Song an der Pausestelle von selbst weiter und blendet ein. Titel und Interpret werden aufgelöst. Danach das Handy weitergeben.
+6. Falsch: diese Person bekommt **−1**. Zuerst spielt `wrong.mp3`. Direkt danach läuft der Song an der Pausestelle in der bisherigen Lautstärke weiter, ohne Einblendung. Es darf wieder auf Stopp geraten werden.
 7. **Überspringen** (während der Song läuft, auch nach einem Fehlversuch): **−3** für den DJ, der den Song aufgelegt hat. Danach Auflösung und Handy weitergeben.
 8. Endet der Track von selbst, ohne richtigen Tipp und ohne Überspringen: „Wurde der Song erraten?“ Bei Ja: wer? (ohne den DJ) und **+1** für diese Person. Bei Nein: **−3** für den DJ. Danach Auflösung und Handy weitergeben.
 
@@ -84,6 +84,7 @@ Diese Abläufe sind gegenüber der eingefrorenen Rohfassung neu. Der Branch `roh
 - Schließt sich die App mitten im Spiel oder stürzt sie ab, stellt der nächste Start den kompletten Spielstand aus dem EveryApp-Speicher wieder her und landet auf dem Bildschirm, auf dem die Runde stand. Dafür ist die Berechtigung `storage` nötig.
 - Auf dem Endstand nach **Spiel beenden** sitzt ein Home-Icon im Kopf, im selben Icon-Stil wie das ✕ an den Namen. Die Beschriftung für Vorleseprogramme ist „Home“. Ein Tipp öffnet ohne weitere Frage die Lobby. Die Namen stehen dort automatisch weiter in der Liste. Punkte und der Stand der beendeten Runde sind gelöscht, ein neues Spiel fängt bei null an. Ein späteres vollständiges Schließen öffnet diese Lobby und nicht die beendete Runde.
 - Mitspielernamen werden gespeichert, sobald ein Name hinzugefügt, im Feld geändert oder entfernt wird, auch bevor jemand auf **Spiel starten** tippt. Nach einem vollständigen Schließen steht die Lobby schon mit diesen Namen da. Liegt ein laufendes Spiel im Speicher, landet der Start wie bisher direkt in der Runde.
+- Statt des synthetischen Pieptons liegen drei MP3s im Repo. Der Buzzer stoppt den Song hart und spielt danach `buzzer.mp3`. Ein richtiger Tipp spielt `correct.mp3` und blendet den Song wieder ein. Ein falscher Tipp spielt `wrong.mp3` und lässt den Song danach sofort in normaler Lautstärke weiterlaufen.
 
 Das sind gewollte Verbesserungen für den späteren Vergleich mit der Rohfassung, nicht das Verhalten von `roh`.
 
@@ -93,9 +94,21 @@ Nur der DJ schaut während der Suche aufs Handy. In den Suchergebnissen und in d
 
 Ab **Los** bis zur Auflösung (richtig, übersprungen oder nach dem Songende) zeigen Buzzer, Tipp und die Frage nach dem Songende weder Titel, Interpret, Albumname noch Cover. Empfehlungen stehen dort nicht. Der Spielerstatus aus Spotify wird auf diesen Schirmen nicht angezeigt.
 
-## Buzzer-Piepton
+## Soundeffekte
 
-Nur ein gültiger Tipp auf den roten Stopp-Buzzer piept. Der Ton startet im selben Moment wie die Annahme des Tipps, noch bevor Spotify fertig pausiert hat, und zusätzlich zur bestehenden Vibration (`EveryAppBridge.vibration`). Er entsteht im WebView mit der Web Audio API: ein kurzer Sinus-Oszillator mit Hüllkurve, ohne Audiodatei. Tipps, die das Spiel ignoriert (falsche Phase, Runde schon gesperrt), bleiben stumm. Andere Tasten piepen nicht. Lässt sich der Ton nicht starten, erscheint kein Fehlerhinweis; Pause und Wertung laufen weiter.
+Drei kurze Dateien von Pixabay, kostenlose Lizenz, unter `assets/sounds/`:
+
+| Datei | Wann | Quelle |
+| --- | --- | --- |
+| `buzzer.mp3` | nach dem harten Stopp | Buzzer 11 von floraphonic |
+| `correct.mp3` | richtiger Tipp, danach blendet der Song ein | Correct von DRAGON-STUDIO |
+| `wrong.mp3` | falscher Tipp, danach sofort volle Lautstärke | Error/Mistake Sound Effect von Lesiakower |
+
+EveryApp lädt jede Datei des Repository von `raw.githubusercontent.com` (`FileSystem.downloadAsync`, binär). Beim Öffnen ersetzt die Laufzeit relative `src` von Audio-Elementen durch `data:audio/mpeg;base64,…`, derselbe Weg wie bei anderen Medien (`mimeForPath` kennt `mp3`). Die MP3s bleiben deshalb echte Dateien und stecken nicht als Base64 im Quelltext.
+
+Der Song bleibt in der Spotify-App. Die Effekte spielt das WebView. Nur ein gültiger Buzzer, ein gültiges Ja und ein gültiges Nein lösen einen Effekt aus. „Versehentlich gedrückt“, Überspringen und das Songende bleiben ohne diese Töne. Lässt sich eine Datei nicht abspielen, läuft Pause und Wertung weiter, ohne Fehlerhinweis.
+
+Einblenden nach einem richtigen Tipp heißt: Spotify-Lautstärke auf 0, Wiedergabe an der Pausestelle, dann in etwa 0,9 Sekunden zurück auf den vorherigen Wert (0…1). Dafür braucht die Bridge `setVolume` und optional `getVolume`. Die aktuelle EveryApp-Bridge hat `pause` und `resume`, aber keine Lautstärke. Dann startet der Song nach `correct.mp3` sofort in der bisherigen Lautstärke. Der Stopp selbst ist immer nur `pause()`, ohne vorherige Rampe. Nach einem falschen Tipp wird die Lautstärke nie geändert.
 
 ## Im Browser
 
@@ -105,6 +118,7 @@ Ohne EveryApp-Bridge erscheint ein kurzer Hinweis. Das Spiel startet dort nicht 
 
 ```
 evryGuessTheSong/
+├── assets/sounds/   # buzzer.mp3, correct.mp3, wrong.mp3
 ├── everyapp.json    # Manifest
 ├── index.html       # App, CSS und JavaScript inline
 └── README.md
