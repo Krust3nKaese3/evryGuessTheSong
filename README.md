@@ -106,6 +106,8 @@ Drei kurze Dateien von Pixabay, kostenlose Lizenz, unter `assets/sounds/`:
 
 EveryApp lädt jede Datei des Repository von `raw.githubusercontent.com` (`FileSystem.downloadAsync`, binär). Beim Öffnen ersetzt die Laufzeit relative `src` von Audio-Elementen durch `data:audio/mpeg;base64,…`, derselbe Weg wie bei anderen Medien (`mimeForPath` kennt `mp3`). Die MP3s bleiben deshalb echte Dateien und stecken nicht als Base64 im Quelltext.
 
+Alle drei Effekte laufen mit der einen Lautstärke `SFX_VOLUME` (0.4). Die Spotify-Lautstärke des Songs bleibt davon unberührt. Der Wert steht nicht im gespeicherten Spielstand.
+
 Der Song bleibt in der Spotify-App. Die Effekte spielt das WebView. Nur ein gültiger Buzzer, ein gültiges Ja und ein gültiges Nein lösen einen Effekt aus. „Versehentlich gedrückt“, Überspringen und das Songende bleiben ohne diese Töne. Lässt sich eine Datei nicht abspielen, läuft Pause und Wertung weiter, ohne Fehlerhinweis.
 
 Einblenden nach einem richtigen Tipp heißt: Spotify-Lautstärke auf 0, Wiedergabe an der Pausestelle, dann in etwa 0,9 Sekunden zurück auf den vorherigen Wert (0…1). Dafür braucht die Bridge `setVolume` und optional `getVolume`. Die aktuelle EveryApp-Bridge hat `pause` und `resume`, aber keine Lautstärke. Dann startet der Song nach `correct.mp3` sofort in der bisherigen Lautstärke. Der Stopp selbst ist immer nur `pause()`, ohne vorherige Rampe. Nach einem falschen Tipp wird die Lautstärke nie geändert.
