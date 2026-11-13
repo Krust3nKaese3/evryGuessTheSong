@@ -41,10 +41,10 @@ Jede Runde:
 2. Der DJ sucht einen Track und tippt auf **Los**. Der Song startet von vorne. Jeder Track darf in diesem Spiel nur einmal gestartet werden.
 3. Die anderen hören über die Box und rufen „Stopp“, wenn sie den Titel kennen. Der DJ tippt sofort auf den roten Buzzer. Die Wiedergabe stoppt in dem Moment hart (`pause`, ohne Ausblendung und ohne Übergang). Das Handy vibriert. Erst wenn Spotify pausiert hat, spielt `buzzer.mp3`.
 4. Danach wird zuerst gewählt, **wer** geraten hat (alle außer dem aktuellen DJ), und dann **Ja** oder **Nein**.
-5. Richtig: diese Person bekommt **+1**. Zuerst spielt `correct.mp3`. Danach läuft der Song an der Pausestelle von selbst weiter und blendet ein. Titel und Interpret werden aufgelöst. Danach das Handy weitergeben.
+5. Richtig: diese Person bekommt **+2**. Zuerst spielt `correct.mp3`. Danach läuft der Song an der Pausestelle von selbst weiter und blendet ein. Titel und Interpret werden aufgelöst. Danach das Handy weitergeben.
 6. Falsch: diese Person bekommt **−1**. Zuerst spielt `wrong.mp3`. Direkt danach läuft der Song an der Pausestelle in der bisherigen Lautstärke weiter, ohne Einblendung. Es darf wieder auf Stopp geraten werden.
 7. **Überspringen** (während der Song läuft, auch nach einem Fehlversuch): **−3** für den DJ, der den Song aufgelegt hat. Danach Auflösung und Handy weitergeben.
-8. Endet der Track von selbst, ohne richtigen Tipp und ohne Überspringen: „Wurde der Song erraten?“ Bei Ja: wer? (ohne den DJ) und **+1** für diese Person. Bei Nein: **−3** für den DJ. Danach Auflösung und Handy weitergeben.
+8. Endet der Track von selbst, ohne richtigen Tipp und ohne Überspringen: „Wurde der Song erraten?“ Bei Ja: wer? (ohne den DJ) und **+2** für diese Person. Bei Nein: **−3** für den DJ. Danach Auflösung und Handy weitergeben.
 
 War der Buzzer ein Versehen, kann der DJ „Versehentlich gedrückt“ tippen. Dann läuft der Song weiter und niemand bekommt Punkte.
 
