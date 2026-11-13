@@ -188,6 +188,26 @@
     @media (prefers-reduced-motion: reduce) {
       .eq span { animation: none; height: 18px; }
     }
+    #wakeVideo {
+      position: fixed;
+      width: 1px;
+      height: 1px;
+      opacity: 0;
+      pointer-events: none;
+      left: 0;
+      bottom: 0;
+    }
+    .wake-debug {
+      position: fixed;
+      right: 10px;
+      bottom: calc(8px + env(safe-area-inset-bottom));
+      z-index: 4;
+      margin: 0;
+      font-size: 11px;
+      line-height: 1.2;
+      color: rgba(255, 248, 244, 0.62);
+      pointer-events: none;
+    }
   </style>
 </head>
 <body>
@@ -195,6 +215,8 @@
   <audio id="sfx-buzzer" src="assets/sounds/buzzer.mp3" preload="auto" hidden></audio>
   <audio id="sfx-correct" src="assets/sounds/correct.mp3" preload="auto" hidden></audio>
   <audio id="sfx-wrong" src="assets/sounds/wrong.mp3" preload="auto" hidden></audio>
+  <video id="wakeVideo" src="data:video/mp4;base64,AAAAIGZ0eXBpc29tAAACAGlzb21pc28yYXZjMW1wNDEAAAM3bW9vdgAAAGxtdmhkAAAAAAAAAAAAAAAAAAAD6AAAAfQAAQAAAQAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAgAAAmF0cmFrAAAAXHRraGQAAAADAAAAAAAAAAAAAAABAAAAAAAAAfQAAAAAAAAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAABAAAAAABAAAAAQAAAAAAAkZWR0cwAAABxlbHN0AAAAAAAAAAEAAAH0AAAAAAABAAAAAAHZbWRpYQAAACBtZGhkAAAAAAAAAAAAAAAAAAAoAAAAFABVxAAAAAAALWhkbHIAAAAAAAAAAHZpZGUAAAAAAAAAAAAAAABWaWRlb0hhbmRsZXIAAAABhG1pbmYAAAAUdm1oZAAAAAEAAAAAAAAAAAAAACRkaW5mAAAAHGRyZWYAAAAAAAAAAQAAAAx1cmwgAAAAAQAAAURzdGJsAAAAuHN0c2QAAAAAAAAAAQAAAKhhdmMxAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAAAABAAEABIAAAASAAAAAAAAAABFUxhdmM2MC4zMS4xMDIgbGlieDI2NAAAAAAAAAAAAAAAGP//AAAALmF2Y0MBQsAe/+EAFmdCwB7ZHsBEAAADAAQAAAMAUDxYuSABAAVoy4PEyAAAABBwYXNwAAAAAQAAAAEAAAAUYnRydAAAAAAAACsQAAArEAAAABhzdHRzAAAAAAAAAAEAAAAFAAAEAAAAABRzdHNzAAAAAAAAAAEAAAABAAAAHHN0c2MAAAAAAAAAAQAAAAEAAAAFAAAAAQAAAChzdHN6AAAAAAAAAAAAAAAFAAAChwAAAAsAAAALAAAACgAAAAoAAAAUc3RjbwAAAAAAAAABAAADZwAAAGJ1ZHRhAAAAWm1ldGEAAAAAAAAAIWhkbHIAAAAAAAAAAG1kaXJhcHBsAAAAAAAAAAAAAAAALWlsc3QAAAAlqXRvbwAAAB1kYXRhAAAAAQAAAABMYXZmNjAuMTYuMTAwAAAACGZyZWUAAAK5bWRhdAAAAnMGBf//b9xF6b3m2Ui3lizYINkj7u94MjY0IC0gY29yZSAxNjQgcjMxMDggMzFlMTlmOSAtIEguMjY0L01QRUctNCBBVkMgY29kZWMgLSBDb3B5bGVmdCAyMDAzLTIwMjMgLSBodHRwOi8vd3d3LnZpZGVvbGFuLm9yZy94MjY0Lmh0bWwgLSBvcHRpb25zOiBjYWJhYz0wIHJlZj0zIGRlYmxvY2s9MTotMzotMyBhbmFseXNlPTB4MToweDExMSBtZT1oZXggc3VibWU9NyBwc3k9MSBwc3lfcmQ9Mi4wMDowLjcwIG1peGVkX3JlZj0xIG1lX3JhbmdlPTE2IGNocm9tYV9tZT0xIHRyZWxsaXM9MSA4eDhkY3Q9MCBjcW09MCBkZWFkem9uZT0yMSwxMSBmYXN0X3Bza2lwPTEgY2hyb21hX3FwX29mZnNldD0tNCB0aHJlYWRzPTEgbG9va2FoZWFkX3RocmVhZHM9MSBzbGljZWRfdGhyZWFkcz0wIG5yPTAgZGVjaW1hdGU9MSBpbnRlcmxhY2VkPTAgYmx1cmF5X2NvbXBhdD0wIGNvbnN0cmFpbmVkX2ludHJhPTAgYmZyYW1lcz0wIHdlaWdodHA9MCBrZXlpbnQ9MjUwIGtleWludF9taW49MTAgc2NlbmVjdXQ9NDAgaW50cmFfcmVmcmVzaD0wIHJjX2xvb2thaGVhZD00MCByYz1jcmYgbWJ0cmVlPTEgY3JmPTIzLjAgcWNvbXA9MC42MCBxcG1pbj0wIHFwbWF4PTY5IHFwc3RlcD00IGlwX3JhdGlvPTEuNDAgYXE9MToxLjIwAIAAAAAMZYiEBLOcmKAAOKOAAAAAB0GaOAlnOoAAAAAHQZpUAlnOoAAAAAZBmmARznUAAAAGQZqAEM51" muted playsinline webkit-playsinline loop preload="auto" disablepictureinpicture aria-hidden="true"></video>
+  <p id="wakeDebug" class="wake-debug" hidden></p>
   <script>
     const NO_CLIENT_ID = 'Keine Spotify Client ID hinterlegt. Bitte in den EveryApp-Einstellungen eintragen.';
     const NOT_INSTALLED = 'Spotify ist nicht installiert. Bitte die Spotify-App aus dem Play Store installieren und dich dort anmelden.';
@@ -2300,12 +2322,148 @@
       return true;
     }
 
+    function wakeVideoEl() {
+      return document.getElementById('wakeVideo');
+    }
+
+    function wakeVideoPlaying() {
+      const video = wakeVideoEl();
+      return Boolean(video && !video.paused && video.currentTime >= 0 && video.readyState > 0);
+    }
+
+    function setWakeDebug(mode) {
+      wakeMode = mode;
+      document.documentElement.dataset.wake = mode;
+      const el = document.getElementById('wakeDebug');
+      if (!el) return;
+      const label = mode === 'screen' ? 'Wach: Wake Lock'
+        : mode === 'video' ? 'Wach: Video'
+        : mode === 'pending' ? 'Wach: wartet'
+        : '';
+      el.textContent = label;
+      if (label) el.removeAttribute('hidden');
+      else el.setAttribute('hidden', '');
+    }
+
+    function canTryWakeLock() {
+      return Boolean(navigator.wakeLock && typeof navigator.wakeLock.request === 'function');
+    }
+
+    function pauseWakeVideo() {
+      const video = wakeVideoEl();
+      if (!video) return;
+      try { video.pause(); } catch (error) {}
+    }
+
+    function releaseScreenLock() {
+      const lock = screenLock;
+      screenLock = null;
+      if (lock && !lock.released) lock.release().catch(function () {});
+    }
+
+    function releaseAwake() {
+      wakeWanted = false;
+      releaseScreenLock();
+      pauseWakeVideo();
+      setWakeDebug('off');
+    }
+
+    function playWakeVideo() {
+      const video = wakeVideoEl();
+      if (!video) {
+        setWakeDebug('pending');
+        return;
+      }
+      video.muted = true;
+      video.defaultMuted = true;
+      video.volume = 0;
+      video.loop = true;
+      video.playsInline = true;
+      const played = video.play();
+      const settled = (ok) => {
+        if (!wakeWanted) {
+          pauseWakeVideo();
+          return;
+        }
+        if (screenLock && !screenLock.released) return;
+        setWakeDebug(ok && !video.paused ? 'video' : 'pending');
+      };
+      if (played && typeof played.then === 'function') played.then(function () { settled(true); }, function () { settled(false); });
+      else settled(!video.paused);
+    }
+
+    function requestAwake(fromGesture) {
+      wakeWanted = true;
+      if (document.visibilityState === 'hidden') return;
+      if (screenLock && !screenLock.released) {
+        setWakeDebug('screen');
+        return;
+      }
+      if (canTryWakeLock()) {
+        let pending;
+        try {
+          pending = navigator.wakeLock.request('screen');
+        } catch (error) {
+          pending = Promise.reject(error);
+        }
+        Promise.resolve(pending).then((lock) => {
+          if (!wakeWanted || document.visibilityState === 'hidden' || (screenLock && !screenLock.released)) {
+            if (lock && !lock.released) lock.release().catch(function () {});
+            return;
+          }
+          screenLock = lock;
+          lock.addEventListener('release', () => {
+            if (screenLock !== lock) return;
+            screenLock = null;
+            if (!wakeWanted || document.visibilityState !== 'visible') return;
+            requestAwake(false);
+          });
+          pauseWakeVideo();
+          setWakeDebug('screen');
+        }, () => {
+          if (!wakeWanted) return;
+          if (wakeVideoPlaying()) {
+            setWakeDebug('video');
+            return;
+          }
+          if (fromGesture) playWakeVideo();
+          else setWakeDebug('pending');
+        });
+        return;
+      }
+      if (wakeVideoPlaying()) {
+        setWakeDebug('video');
+        return;
+      }
+      if (fromGesture) playWakeVideo();
+      else setWakeDebug('pending');
+    }
+
+    function bindWakeVideo() {
+      const video = wakeVideoEl();
+      if (!video || video.dataset.bound) return;
+      video.dataset.bound = '1';
+      video.muted = true;
+      video.defaultMuted = true;
+      video.volume = 0;
+      video.addEventListener('ended', () => {
+        if (!wakeWanted || (screenLock && !screenLock.released)) return;
+        const again = video.play();
+        if (again && typeof again.catch === 'function') again.catch(function () { setWakeDebug('pending'); });
+      });
+    }
+
     async function onClick(event) {
       const button = event.target.closest('[data-action]');
       if (!button || button.disabled) return;
       const action = button.dataset.action;
+      if (action === 'end-confirm' || action === 'home') releaseAwake();
+      else if (action === 'start' || inGame()) requestAwake(true);
       if (action === 'remove-player') await removePlayer(Number(button.dataset.id));
-      if (action === 'start') await startGame();
+      if (action === 'start') {
+        await startGame();
+        if (!inGame()) releaseAwake();
+      }
       if (action === 'reconnect') withBusy(reconnectInGame);
       if (action === 'refresh') withBusy(loadSpotifyStatus);
       if (action === 'login') withBusy(async () => { await requireClient(); await requireApi().login(); await loadSpotifyStatus(); state.info = 'Anmeldung abgeschlossen.'; });
@@ -2355,6 +2513,7 @@
         const form = event.target;
         if (!form || !form.dataset) return;
         event.preventDefault();
+        if (inGame()) requestAwake(true);
         if (form.dataset.action === 'add-player') addPlayer();
         if (form.dataset.action === 'search') runSearch();
       });
@@ -2411,9 +2570,16 @@
       }
       if (state.phase === 'playing' && state.round && !state.round.lock) startPoll();
       render();
+      if (inGame()) requestAwake(false);
+      else releaseAwake();
     }
 
+    let screenLock = null;
+    let wakeWanted = false;
+    let wakeMode = 'off';
+
     async function init() {
+      bindWakeVideo();
       bind();
       subscribe();
       window.addEventListener('pagehide', () => { persistGame(); persistLobby(); });
@@ -2421,6 +2587,8 @@
         if (document.visibilityState === 'hidden') {
           persistGame();
           persistLobby();
+        } else if (inGame()) {
+          requestAwake(false);
         }
       });
       try {

@@ -85,6 +85,7 @@ Diese Abläufe sind gegenüber der eingefrorenen Rohfassung neu. Der Branch `roh
 - Auf dem Endstand nach **Spiel beenden** sitzt ein Home-Icon im Kopf, im selben Icon-Stil wie das ✕ an den Namen. Die Beschriftung für Vorleseprogramme ist „Home“. Ein Tipp öffnet ohne weitere Frage die Lobby. Die Namen stehen dort automatisch weiter in der Liste. Punkte und der Stand der beendeten Runde sind gelöscht, ein neues Spiel fängt bei null an. Ein späteres vollständiges Schließen öffnet diese Lobby und nicht die beendete Runde.
 - Mitspielernamen werden gespeichert, sobald ein Name hinzugefügt, im Feld geändert oder entfernt wird, auch bevor jemand auf **Spiel starten** tippt. Nach einem vollständigen Schließen steht die Lobby schon mit diesen Namen da. Liegt ein laufendes Spiel im Speicher, landet der Start wie bisher direkt in der Runde.
 - Statt des synthetischen Pieptons liegen drei MP3s im Repo. Der Buzzer stoppt den Song hart und spielt danach `buzzer.mp3`. Ein richtiger Tipp spielt `correct.mp3` und blendet den Song wieder ein. Ein falscher Tipp spielt `wrong.mp3` und lässt den Song danach sofort in normaler Lautstärke weiterlaufen.
+- Während einer Runde bleibt das Display an. Zuerst der Screen Wake Lock, sonst ein stummes Mini-Video. In der Lobby und auf dem Endstand wird das wieder losgelassen. Der Spielstand speichert das nicht.
 
 Das sind gewollte Verbesserungen für den späteren Vergleich mit der Rohfassung, nicht das Verhalten von `roh`.
 
@@ -111,6 +112,16 @@ Alle drei Effekte laufen mit der einen Lautstärke `SFX_VOLUME` (0.4). Die Spoti
 Der Song bleibt in der Spotify-App. Die Effekte spielt das WebView. Nur ein gültiger Buzzer, ein gültiges Ja und ein gültiges Nein lösen einen Effekt aus. „Versehentlich gedrückt“, Überspringen und das Songende bleiben ohne diese Töne. Lässt sich eine Datei nicht abspielen, läuft Pause und Wertung weiter, ohne Fehlerhinweis.
 
 Einblenden nach einem richtigen Tipp heißt: Spotify-Lautstärke auf 0, Wiedergabe an der Pausestelle, dann in etwa 0,9 Sekunden zurück auf den vorherigen Wert (0…1). Dafür braucht die Bridge `setVolume` und optional `getVolume`. Die aktuelle EveryApp-Bridge hat `pause` und `resume`, aber keine Lautstärke. Dann startet der Song nach `correct.mp3` sofort in der bisherigen Lautstärke. Der Stopp selbst ist immer nur `pause()`, ohne vorherige Rampe. Nach einem falschen Tipp wird die Lautstärke nie geändert.
+
+## Bildschirm
+
+Ab **Spiel starten** bis **Spiel beenden** oder Home soll das Handy nicht von allein dunkel werden, vor allem auf dem Buzzer. Die EveryApp-Bridge hat dafür keine Funktion. Die Mini-App macht es selbst.
+
+Zuerst `navigator.wakeLock.request('screen')`. Wird die Seite verdeckt und wieder sichtbar, wird der Lock neu geholt. Fehlt die API oder lehnt sie ab, startet ein Tippen (Spiel starten, Buzzer oder eine andere Taste in der Runde) ein winziges, stummes, gelooptes Video ohne Tonspur. Das ist der NoSleep-Weg fürs Android-WebView. Lautstärke 0, `muted`, `playsinline`. Spotify und die drei Effekte bleiben unangetastet.
+
+In der Lobby und auf dem Endstand werden Lock und Video losgelassen. Unten steht klein, welcher Weg hält: `Wach: Wake Lock`, `Wach: Video` oder `Wach: wartet`. Das steht nicht in `songraten.game.v1`.
+
+EveryApp setzt das HTML ohne `baseUrl`, also ohne sichere Origin. Die Wake Lock API gibt es nur im Secure Context. Im EveryApp-WebView sollte deshalb das stumme Video greifen. Unter https oder localhost nimmt der Browser den Wake Lock.
 
 ## Im Browser
 
