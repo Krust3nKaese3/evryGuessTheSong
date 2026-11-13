@@ -1059,6 +1059,11 @@
     const FADE_IN_MS = 900;
     const FADE_IN_STEPS = 9;
     const SFX_CAP_MS = 4000;
+    const SFX_VOLUME = 0.4;
+    ['sfx-buzzer', 'sfx-correct', 'sfx-wrong'].forEach((id) => {
+      const el = document.getElementById(id);
+      if (el) el.volume = SFX_VOLUME;
+    });
 
     let transportChain = Promise.resolve();
     let transportEpoch = 0;
@@ -1113,7 +1118,7 @@
         el.addEventListener('error', finish);
         cap = setTimeout(finish, SFX_CAP_MS);
         try { el.currentTime = 0; } catch (error) {}
-        el.volume = 1;
+        el.volume = SFX_VOLUME;
         const played = el.play();
         if (played && typeof played.then === 'function') {
           played.then(function () {}, function () { finish(); });
