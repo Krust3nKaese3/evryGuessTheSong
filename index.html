@@ -1490,7 +1490,7 @@
       const guesser = playerById(state.guesserId);
       if (!round || !guesser || state.phase !== 'guess' || guesser.id === round.djId) return;
       if (correct) {
-        guesser.score += 1;
+        guesser.score += 2;
         round.outcome = 'correct';
         round.outcomeWho = guesser.name;
         state.phase = 'reveal';
@@ -1600,7 +1600,7 @@
       const round = state.round;
       const guesser = playerById(state.guesserId);
       if (!round || !guesser || state.phase !== 'endedWho' || guesser.id === round.djId) return;
-      guesser.score += 1;
+      guesser.score += 2;
       round.outcome = 'ended-yes';
       round.outcomeWho = guesser.name;
       state.phase = 'reveal';
@@ -1810,10 +1810,10 @@
               <li>Song suchen und auf Los tippen. Er startet von vorne. Jeder Song nur einmal pro Spiel.</li>
               <li>Bei „Stopp“ den roten Buzzer drücken. Der Song stoppt sofort, danach kommt der Buzzer.</li>
               <li>Wer geraten hat (nicht der DJ), dann Ja oder Nein.</li>
-              <li>Richtig: +1, Erfolgs-Ton, der Song blendet wieder ein, dann Auflösung.</li>
+              <li>Richtig: +2, Erfolgs-Ton, der Song blendet wieder ein, dann Auflösung.</li>
               <li>Falsch: −1, Fehler-Ton, danach läuft der Song sofort in normaler Lautstärke weiter.</li>
               <li>Überspringen: −3 für den DJ, dann Auflösung.</li>
-              <li>Song zu Ende: wurde er erraten? Ja ergibt +1, Nein −3 für den DJ.</li>
+              <li>Song zu Ende: wurde er erraten? Ja ergibt +2, Nein −3 für den DJ.</li>
             </ol>
           </details>
         </div>`;
@@ -1952,7 +1952,7 @@
           <button type="button" class="btn ghost" data-action="back-name">Zurück</button>
           <p class="hint">Der DJ bekommt den Punkt nicht. Falscher Name? Zurück, dann neu wählen.</p>
           ${guessListHtml()}
-          <button type="button" class="btn" data-action="ended-confirm" ${selected ? '' : 'disabled'}>Punkt geben (+1)</button>
+          <button type="button" class="btn" data-action="ended-confirm" ${selected ? '' : 'disabled'}>Punkt geben (+2)</button>
         </section>
       </div>`;
     }
@@ -1961,9 +1961,9 @@
       const round = state.round;
       const dj = round && playerById(round.djId);
       let outcome = '';
-      if (round && round.outcome === 'correct') outcome = (round.outcomeWho || 'Jemand') + ' liegt richtig und bekommt +1.';
+      if (round && round.outcome === 'correct') outcome = (round.outcomeWho || 'Jemand') + ' liegt richtig und bekommt +2.';
       if (round && round.outcome === 'skip') outcome = 'Übersprungen. ' + (dj ? dj.name : 'Der DJ') + ' bekommt −3.';
-      if (round && round.outcome === 'ended-yes') outcome = 'Doch erraten. ' + (round.outcomeWho || 'Jemand') + ' bekommt +1.';
+      if (round && round.outcome === 'ended-yes') outcome = 'Doch erraten. ' + (round.outcomeWho || 'Jemand') + ' bekommt +2.';
       if (round && round.outcome === 'ended-no') outcome = 'Nicht erraten. ' + (dj ? dj.name : 'Der DJ') + ' bekommt −3.';
       return `${headerHtml()}<div class="stack">
         ${bannersHtml()}
