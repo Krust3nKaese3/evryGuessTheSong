@@ -192,6 +192,9 @@
 </head>
 <body>
   <div id="app"></div>
+  <audio id="sfx-buzzer" src="assets/sounds/buzzer.mp3" preload="auto" hidden></audio>
+  <audio id="sfx-correct" src="assets/sounds/correct.mp3" preload="auto" hidden></audio>
+  <audio id="sfx-wrong" src="assets/sounds/wrong.mp3" preload="auto" hidden></audio>
   <script>
     const NO_CLIENT_ID = 'Keine Spotify Client ID hinterlegt. Bitte in den EveryApp-Einstellungen eintragen.';
     const NOT_INSTALLED = 'Spotify ist nicht installiert. Bitte die Spotify-App aus dem Play Store installieren und dich dort anmelden.';
@@ -215,6 +218,7 @@
       busy: false,
       confirmEnd: false,
       transportPaused: false,
+      holdingSfx: false,
       songsStarted: 0,
       startedUris: [],
       shownRecommendationUris: [],
@@ -1036,7 +1040,7 @@
           : 'Der Song läuft über die Box. Titel und Interpret bleiben verdeckt.';
       }
       const resume = document.getElementById('resumeBtn');
-      if (resume) resume.hidden = !state.transportPaused;
+      if (resume) resume.hidden = state.holdingSfx || !state.transportPaused;
       const box = document.getElementById('unconfirmed');
       if (box && state.round) box.hidden = !state.round.unconfirmed;
     }
@@ -1052,36 +1056,123 @@
       }
     }
 
-    let buzzAudio = null;
+    const FADE_IN_MS = 900;
+    const FADE_IN_STEPS = 9;
+    const SFX_CAP_MS = 4000;
 
-    function playBuzzBeep() {
-      try {
-        const Ctx = window.AudioContext || window.webkitAudioContext;
-        if (!Ctx) return;
-        if (!buzzAudio) buzzAudio = new Ctx();
-        const ctx = buzzAudio;
-        if (ctx.state === 'suspended' && typeof ctx.resume === 'function') {
-          Promise.resolve(ctx.resume()).catch(function () {});
-        }
-        const now = ctx.currentTime || 0;
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-        osc.type = 'sine';
-        osc.frequency.setValueAtTime(880, now);
-        gain.gain.setValueAtTime(0.0001, now);
-        gain.gain.exponentialRampToValueAtTime(0.22, now + 0.012);
-        gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.16);
-        osc.connect(gain);
-        gain.connect(ctx.destination);
-        osc.start(now);
-        osc.stop(now + 0.18);
-        osc.onended = function () {
-          try {
-            osc.disconnect();
-            gain.disconnect();
-          } catch (error) {}
+    let transportChain = Promise.resolve();
+    let transportEpoch = 0;
+    let activeSfx = null;
+
+    function beginTransportTurn() {
+      transportEpoch += 1;
+      state.holdingSfx = false;
+      stopSfx();
+      return transportEpoch;
+    }
+
+    function enqueueTransport(task) {
+      const job = transportChain.then(task, task);
+      transportChain = job.then(function () {}, function () {});
+      return job;
+    }
+
+    function wait(ms) {
+      return new Promise((resolve) => { setTimeout(resolve, ms); });
+    }
+
+    function stopSfx() {
+      const current = activeSfx;
+      activeSfx = null;
+      ['sfx-buzzer', 'sfx-correct', 'sfx-wrong'].forEach((id) => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        try { el.pause(); } catch (error) {}
+      });
+      if (current) current.cancel();
+    }
+
+    function playSfx(name) {
+      stopSfx();
+      const el = document.getElementById('sfx-' + name);
+      if (!el) return Promise.resolve();
+      return new Promise((resolve) => {
+        let settled = false;
+        let cap = 0;
+        const finish = () => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(cap);
+          el.removeEventListener('ended', finish);
+          el.removeEventListener('error', finish);
+          if (activeSfx && activeSfx.cancel === finish) activeSfx = null;
+          resolve();
         };
-      } catch (error) {}
+        activeSfx = { cancel: finish };
+        el.addEventListener('ended', finish);
+        el.addEventListener('error', finish);
+        cap = setTimeout(finish, SFX_CAP_MS);
+        try { el.currentTime = 0; } catch (error) {}
+        el.volume = 1;
+        const played = el.play();
+        if (played && typeof played.then === 'function') {
+          played.then(function () {}, function () { finish(); });
+        }
+      });
+    }
+
+    function volumeOf(raw) {
+      const value = typeof raw === 'number' ? raw : Number(raw && raw.volume);
+      if (!(value > 0) || value > 1) return 1;
+      return value;
+    }
+
+    async function readSpotifyVolume(api) {
+      if (typeof api.getVolume !== 'function') return 1;
+      try {
+        return volumeOf(await api.getVolume());
+      } catch (error) {
+        return 1;
+      }
+    }
+
+    async function restoreSpotifyVolume(api, target) {
+      if (typeof api.setVolume !== 'function') return;
+      try { await api.setVolume(target); } catch (error) {}
+    }
+
+    // Pause and resume on the current EveryApp bridge are hard cuts. A fade-in
+    // only happens when that bridge also exposes setVolume (0..1).
+    async function resumeFadeIn() {
+      const api = requireApi();
+      const epoch = transportEpoch;
+      if (typeof api.setVolume !== 'function') {
+        await restorePlayback();
+        return;
+      }
+      const target = await readSpotifyVolume(api);
+      if (epoch !== transportEpoch) return;
+      let ducked = false;
+      try {
+        await api.setVolume(0);
+        ducked = true;
+        if (epoch !== transportEpoch) {
+          await restoreSpotifyVolume(api, target);
+          return;
+        }
+        await restorePlayback();
+        for (let step = 1; step <= FADE_IN_STEPS; step++) {
+          await wait(FADE_IN_MS / FADE_IN_STEPS);
+          if (epoch !== transportEpoch) {
+            await restoreSpotifyVolume(api, target);
+            return;
+          }
+          await api.setVolume(target * (step / FADE_IN_STEPS));
+        }
+      } catch (error) {
+        if (ducked) await restoreSpotifyVolume(api, target);
+        throw error;
+      }
     }
 
     async function withBusy(work) {
@@ -1161,6 +1252,44 @@
       render();
     }
 
+    function backName() {
+      if (state.phase === 'search') {
+        clearVisibleRecommendations();
+        state.phase = 'dj';
+        state.djId = null;
+        state.picked = null;
+        state.results = [];
+        state.draftQuery = '';
+        state.error = '';
+        state.info = '';
+        render();
+        return;
+      }
+      if (state.phase === 'dj') {
+        if (!state.djId) return;
+        state.djId = null;
+        state.error = '';
+        render();
+        return;
+      }
+      if (state.phase === 'guess') {
+        if (!state.guesserId) return;
+        state.guesserId = null;
+        render();
+        return;
+      }
+      if (state.phase === 'endedWho') {
+        if (state.guesserId) {
+          state.guesserId = null;
+          render();
+          return;
+        }
+        state.phase = 'endedAsk';
+        state.guesserId = null;
+        render();
+      }
+    }
+
     function confirmDj() {
       if (!playerById(state.djId)) {
         presentError('Bitte zuerst auswählen, wer DJ ist.');
@@ -1185,8 +1314,11 @@
         return;
       }
       await withBusy(async () => {
+        if (state.phase !== 'search') return;
         await ensureReady();
+        if (state.phase !== 'search') return;
         const found = await requireApi().search(query, { types: ['track'], limit: 8 });
+        if (state.phase !== 'search') return;
         state.results = normalizeTracks(found);
         const stillVisible = state.picked && (
           state.results.some((track) => sameTrack(track, state.picked))
@@ -1206,7 +1338,7 @@
     }
 
     async function los() {
-      if (!state.picked || !playerById(state.djId)) return;
+      if (state.phase !== 'search' || !state.picked || !playerById(state.djId)) return;
       if (state.spotify.availability && state.spotify.availability.premium === false) {
         presentError(NOT_PREMIUM);
         render();
@@ -1220,15 +1352,25 @@
       }
       const picked = state.picked;
       await withBusy(async () => {
+        if (state.phase !== 'search') return;
         await ensureReady();
+        if (state.phase !== 'search') return;
         const api = requireApi();
         let playback = normalizeState(await api.play(picked.uri, { positionMs: 0 }));
+        if (state.phase !== 'search') {
+          try { await api.pause(); } catch (error) { presentError(error); }
+          return;
+        }
         if (playback && playback.track && sameTrack(playback.track.uri, picked.uri) && playback.positionMs > 1500) {
           try {
             playback = normalizeState(await api.seek(0));
           } catch (error) {
             presentError(error);
           }
+        }
+        if (state.phase !== 'search') {
+          try { await api.pause(); } catch (error) { presentError(error); }
+          return;
         }
         state.round = {
           djId: state.djId,
@@ -1259,26 +1401,35 @@
 
     async function buzz() {
       const round = state.round;
-      if (!round || state.phase !== 'playing' || round.lock) return;
-      playBuzzBeep();
+      if (!round || state.phase !== 'playing' || round.lock || state.holdingSfx) return;
       round.lock = true;
       stopPoll();
       state.resumeAfterReconnect = false;
+      let pauseCall;
+      try {
+        pauseCall = requireApi().pause();
+      } catch (error) {
+        pauseCall = Promise.reject(error);
+      }
+      const pauseSettled = pauseCall.then(() => {}, (error) => {
+        presentError(error);
+        paintBanners();
+      });
+      const epoch = beginTransportTurn();
       state.phase = 'guess';
       state.guesserId = null;
       state.notice = '';
       render();
       buzzHaptic();
-      try {
-        await requireApi().pause();
-      } catch (error) {
-        presentError(error);
-        paintBanners();
-      }
+      enqueueTransport(() => pauseSettled);
+      enqueueTransport(async () => {
+        if (epoch !== transportEpoch) return;
+        await playSfx('buzzer');
+      });
     }
 
     async function resumeTransport() {
-      if (state.phase !== 'playing' || !state.round || state.round.lock) return;
+      if (state.phase !== 'playing' || !state.round || state.round.lock || state.holdingSfx) return;
       try {
         state.resumeAfterReconnect = false;
         await restorePlayback();
@@ -1343,53 +1494,82 @@
         round.outcome = 'correct';
         round.outcomeWho = guesser.name;
         state.phase = 'reveal';
+        const epoch = beginTransportTurn();
         render();
-        try { await requireApi().pause(); } catch (error) { presentError(error); paintBanners(); }
+        enqueueTransport(async () => {
+          if (epoch !== transportEpoch) return;
+          await playSfx('correct');
+          if (epoch !== transportEpoch || state.phase !== 'reveal' || state.round !== round) return;
+          try {
+            await resumeFadeIn();
+          } catch (error) {
+            presentError(error);
+            paintBanners();
+          }
+        });
         return;
       }
       guesser.score -= 1;
       round.lock = false;
-      state.notice = guesser.name + ' liegt falsch und bekommt −1. Der Song läuft weiter.';
+      state.notice = guesser.name + ' liegt falsch und bekommt −1. Nach dem Ton läuft der Song sofort weiter.';
       state.phase = 'playing';
-      state.transportPaused = false;
+      state.transportPaused = true;
+      const epoch = beginTransportTurn();
+      state.holdingSfx = true;
       render();
-      startPoll();
-      try {
-        await restorePlayback();
-        paintTransport();
-      } catch (error) {
-        state.transportPaused = true;
-        state.resumeAfterReconnect = true;
-        presentError(error);
-        paintTransport();
-        paintBanners();
-      }
+      enqueueTransport(async () => {
+        try {
+          if (epoch !== transportEpoch) return;
+          await playSfx('wrong');
+          if (epoch !== transportEpoch || state.phase !== 'playing' || state.round !== round) return;
+          startPoll();
+          try {
+            await restorePlayback();
+            paintTransport();
+          } catch (error) {
+            state.transportPaused = true;
+            state.resumeAfterReconnect = true;
+            presentError(error);
+            paintTransport();
+            paintBanners();
+          }
+        } finally {
+          if (epoch === transportEpoch) {
+            state.holdingSfx = false;
+            render();
+          }
+        }
+      });
     }
 
     async function resumeMistake() {
       const round = state.round;
       if (!round || state.phase !== 'guess') return;
+      const epoch = beginTransportTurn();
       round.lock = false;
       state.notice = 'Stopp zurückgenommen. Der Song läuft weiter, niemand bekommt Punkte.';
       state.phase = 'playing';
       render();
       startPoll();
-      try {
-        await restorePlayback();
-        paintTransport();
-      } catch (error) {
-        state.transportPaused = true;
-        state.resumeAfterReconnect = true;
-        presentError(error);
-        paintTransport();
-        paintBanners();
-      }
+      enqueueTransport(async () => {
+        if (epoch !== transportEpoch) return;
+        try {
+          await restorePlayback();
+          paintTransport();
+        } catch (error) {
+          state.transportPaused = true;
+          state.resumeAfterReconnect = true;
+          presentError(error);
+          paintTransport();
+          paintBanners();
+        }
+      });
     }
 
     async function skipSong() {
       const round = state.round;
       const dj = round && playerById(round.djId);
-      if (!round || !dj || state.phase !== 'playing' || round.lock) return;
+      if (!round || !dj || state.phase !== 'playing' || round.lock || state.holdingSfx) return;
       round.lock = true;
       stopPoll();
       dj.score -= 3;
@@ -1428,6 +1608,7 @@
     }
 
     function nextDj() {
+      beginTransportTurn();
       stopPoll();
       clearVisibleRecommendations();
       state.phase = 'dj';
@@ -1446,6 +1627,7 @@
     function cancelEnd() { state.confirmEnd = false; render(); }
 
     async function finishGame() {
+      beginTransportTurn();
       state.confirmEnd = false;
       stopPoll();
       clearVisibleRecommendations();
@@ -1458,14 +1640,16 @@
       const gameSaved = persistGame();
       await lobbySaved;
       await gameSaved;
-      const api = spotifyApi();
-      if (api) {
+      await enqueueTransport(async () => {
+        const api = spotifyApi();
+        if (!api) return;
         try { await api.stop(); } catch (error) { presentError(error); }
-      }
+      });
       render();
     }
 
     async function returnToLobby() {
+      beginTransportTurn();
       state.players.forEach((player) => { player.score = 0; });
       state.phase = 'setup';
       state.djId = null;
@@ -1624,9 +1808,10 @@
             <ol>
               <li>DJ auswählen und bestätigen.</li>
               <li>Song suchen und auf Los tippen. Er startet von vorne. Jeder Song nur einmal pro Spiel.</li>
-              <li>Bei „Stopp“ den roten Buzzer drücken.</li>
+              <li>Bei „Stopp“ den roten Buzzer drücken. Der Song stoppt sofort, danach kommt der Buzzer.</li>
               <li>Wer geraten hat (nicht der DJ), dann Ja oder Nein.</li>
-              <li>Richtig +1 und Auflösung. Falsch −1, der Song läuft weiter.</li>
+              <li>Richtig: +1, Erfolgs-Ton, der Song blendet wieder ein, dann Auflösung.</li>
+              <li>Falsch: −1, Fehler-Ton, danach läuft der Song sofort in normaler Lautstärke weiter.</li>
               <li>Überspringen: −3 für den DJ, dann Auflösung.</li>
               <li>Song zu Ende: wurde er erraten? Ja ergibt +1, Nein −3 für den DJ.</li>
             </ol>
@@ -1642,7 +1827,8 @@
         ${scoreboardHtml()}
         <section class="stack">
           <h2>Wer ist der DJ?</h2>
-          <p class="hint">Handy weitergeben. Nur die Person, die den Song aussucht, bestätigt hier ihren Namen.</p>
+          <button type="button" class="btn ghost" data-action="back-name">Zurück</button>
+          <p class="hint">Handy weitergeben. Nur die Person, die den Song aussucht, bestätigt hier ihren Namen. Falscher Name? Zurück, dann neu wählen.</p>
           ${choices}
           <button type="button" class="btn" data-action="confirm-dj" ${state.djId ? '' : 'disabled'}>Ich bin der DJ</button>
         </section>
@@ -1676,7 +1862,8 @@
         ${scoreboardHtml()}
         <section class="stack">
           <h2>Song aussuchen</h2>
-          <p class="hint">DJ: ${esc(dj ? dj.name : '')}. Nur du solltest diese Liste sehen.</p>
+          <button type="button" class="btn ghost" data-action="back-name">Zurück</button>
+          <p class="hint">DJ: ${esc(dj ? dj.name : '')}. Nur du solltest diese Liste sehen. Falsche Person? Zurück, dann neu wählen.</p>
           <form class="stack" data-action="search">
             <input id="searchQuery" type="text" placeholder="Titel oder Interpret" autocomplete="off" value="${esc(state.draftQuery)}" aria-label="Suche">
             <button class="btn secondary" type="submit" ${searchLocked ? 'disabled' : ''}>Suchen</button>
@@ -1701,15 +1888,15 @@
           <div class="eq" aria-hidden="true"><span></span><span></span><span></span><span></span></div>
           <p class="eyebrow">DJ ${esc(dj ? dj.name : '')}</p>
           <p id="playState" class="lead" aria-live="polite">${state.transportPaused ? 'Die Wiedergabe ist pausiert. Titel und Interpret bleiben verdeckt.' : 'Der Song läuft über die Box. Titel und Interpret bleiben verdeckt.'}</p>
-          <button type="button" class="buzzer" data-action="buzz" aria-label="Stopp, Song anhalten">STOPP</button>
-          <button type="button" id="resumeBtn" class="btn secondary" data-action="resume" ${state.transportPaused ? '' : 'hidden'}>Fortsetzen</button>
+          <button type="button" class="buzzer" data-action="buzz" ${state.holdingSfx ? 'disabled' : ''} aria-label="Stopp, Song anhalten">STOPP</button>
+          <button type="button" id="resumeBtn" class="btn secondary" data-action="resume" ${state.transportPaused && !state.holdingSfx ? '' : 'hidden'}>Fortsetzen</button>
           ${state.round && state.round.unconfirmed ? `<div id="unconfirmed" class="stack">
             <p class="banner warn">Spotify spielt den Song noch nicht. Bitte die Box und die Verbindung prüfen. Der Titel bleibt verdeckt.</p>
             <button type="button" class="btn secondary" data-action="retry-play">Erneut von vorne starten</button>
             <button type="button" class="btn ghost" data-action="back-search">Zurück zur Suche</button>
           </div>` : ''}
         </section>
-        <button type="button" class="btn ghost" data-action="skip">Überspringen (−3 für ${esc(dj ? dj.name : 'den DJ')})</button>
+        <button type="button" class="btn ghost" data-action="skip" ${state.holdingSfx ? 'disabled' : ''}>Überspringen (−3 für ${esc(dj ? dj.name : 'den DJ')})</button>
       </div>`;
     }
 
@@ -1728,7 +1915,8 @@
         ${scoreboardHtml()}
         <section class="stack">
           <h2>Wer hat geraten?</h2>
-          <p class="hint">Der DJ zählt nicht. Erst die Person wählen, dann Ja oder Nein.</p>
+          <button type="button" class="btn ghost" data-action="back-name">Zurück</button>
+          <p class="hint">Der DJ zählt nicht. Erst die Person wählen, dann Ja oder Nein. Falscher Name? Zurück, dann neu wählen.</p>
           ${guessListHtml()}
           <div class="row">
             <button type="button" class="btn good" data-action="judge-yes" ${selected ? '' : 'disabled'}>Ja, richtig</button>
@@ -1761,7 +1949,8 @@
         ${scoreboardHtml()}
         <section class="stack">
           <h2>Wer hat ihn erraten?</h2>
-          <p class="hint">Der DJ bekommt den Punkt nicht.</p>
+          <button type="button" class="btn ghost" data-action="back-name">Zurück</button>
+          <p class="hint">Der DJ bekommt den Punkt nicht. Falscher Name? Zurück, dann neu wählen.</p>
           ${guessListHtml()}
           <button type="button" class="btn" data-action="ended-confirm" ${selected ? '' : 'disabled'}>Punkt geben (+1)</button>
         </section>
@@ -2131,6 +2320,7 @@
         state.info = 'Bei Spotify abgemeldet. Die Client-ID in den EveryApp-Einstellungen bleibt erhalten.';
       });
       if (action === 'select-dj') selectDj(Number(button.dataset.id));
+      if (action === 'back-name') backName();
       if (action === 'confirm-dj') confirmDj();
       if (action === 'recommendations') loadRecommendations();
       if (action === 'pick-track') pickTrack(button.dataset.uri);
