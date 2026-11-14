@@ -85,7 +85,7 @@ Diese Abläufe sind gegenüber der eingefrorenen Rohfassung neu. Der Branch `roh
 - Auf dem Endstand nach **Spiel beenden** sitzt ein Home-Icon im Kopf, im selben Icon-Stil wie das ✕ an den Namen. Die Beschriftung für Vorleseprogramme ist „Home“. Ein Tipp öffnet ohne weitere Frage die Lobby. Die Namen stehen dort automatisch weiter in der Liste. Punkte und der Stand der beendeten Runde sind gelöscht, ein neues Spiel fängt bei null an. Ein späteres vollständiges Schließen öffnet diese Lobby und nicht die beendete Runde.
 - Mitspielernamen werden gespeichert, sobald ein Name hinzugefügt, im Feld geändert oder entfernt wird, auch bevor jemand auf **Spiel starten** tippt. Nach einem vollständigen Schließen steht die Lobby schon mit diesen Namen da. Liegt ein laufendes Spiel im Speicher, landet der Start wie bisher direkt in der Runde.
 - Statt des synthetischen Pieptons liegen drei MP3s im Repo. Der Buzzer feuert beim Finger-runter: `pause` und `buzzer.mp3` starten im selben Moment, ohne auf die Bridge zu warten. Ein richtiger Tipp spielt `correct.mp3` und blendet den Song wieder ein. Ein falscher Tipp spielt `wrong.mp3` und lässt den Song danach sofort in normaler Lautstärke weiterlaufen.
-- Während einer Runde bleibt das Display an. Zuerst der Screen Wake Lock, sonst ein stummes Mini-Video. In der Lobby und auf dem Endstand wird das wieder losgelassen. Der Spielstand speichert das nicht.
+- Solange ein Spiel läuft, bleibt das Display an: Lobby, Namenswahl, Wertung und die Zeit zwischen den Runden. Nach dem Spielende und über Home wird das wieder losgelassen. Zuerst der Screen Wake Lock, sonst ein stummes Mini-Video. Wird die Seite wieder sichtbar oder ein Spielstand wiederhergestellt, wird der Wake Lock neu geholt. Fehlt die API, passiert das ohne Fehlermeldung. Der Spielstand speichert das nicht.
 
 Das sind gewollte Verbesserungen für den späteren Vergleich mit der Rohfassung, nicht das Verhalten von `roh`.
 
@@ -117,11 +117,11 @@ Einblenden nach einem richtigen Tipp heißt: Spotify-Lautstärke auf 0, Wiederga
 
 ## Bildschirm
 
-Ab **Spiel starten** bis **Spiel beenden** oder Home soll das Handy nicht von allein dunkel werden, vor allem auf dem Buzzer. Die EveryApp-Bridge hat dafür keine Funktion. Die Mini-App macht es selbst.
+Ab der Lobby beziehungsweise ab **Spiel starten** bis zum Spielende soll das Handy nicht von allein dunkel werden: in der Lobby, bei der Namenswahl, auf der Wertung, zwischen den Runden und auf dem Buzzer. Nach dem Spielende und über Home wird das wieder losgelassen. Die EveryApp-Bridge hat dafür keine Funktion. Die Mini-App macht es selbst.
 
-Zuerst `navigator.wakeLock.request('screen')`. Wird die Seite verdeckt und wieder sichtbar, wird der Lock neu geholt. Fehlt die API oder lehnt sie ab, startet ein Tippen (Spiel starten, Buzzer oder eine andere Taste in der Runde) ein winziges, stummes, gelooptes Video ohne Tonspur. Das ist der NoSleep-Weg fürs Android-WebView. Lautstärke 0, `muted`, `playsinline`. Spotify und die drei Effekte bleiben unangetastet.
+Zuerst `navigator.wakeLock.request('screen')`. Wird die Seite verdeckt und wieder sichtbar, wird der Lock neu geholt, ebenso nach dem Wiederherstellen eines Spielstands. Fehlt die Wake-Lock-API, passiert dabei nichts. Lehnt der Lock ab oder fehlt er, startet ein Tippen (Name, Spiel starten, Buzzer oder eine andere Taste) ein winziges, stummes, gelooptes Video ohne Tonspur. Das ist der NoSleep-Weg fürs Android-WebView. Lautstärke 0, `muted`, `playsinline`. Spotify und die drei Effekte bleiben unangetastet.
 
-In der Lobby und auf dem Endstand werden Lock und Video losgelassen. Unten steht klein, welcher Weg hält: `Wach: Wake Lock`, `Wach: Video` oder `Wach: wartet`. Das steht nicht in `songraten.game.v1`.
+Auf dem Endstand und nach Home werden Lock und Video losgelassen. Ein Tipp in der Lobby holt beides wieder. Unten steht klein, welcher Weg hält: `Wach: Wake Lock`, `Wach: Video` oder `Wach: wartet`. Das steht nicht in `songraten.game.v1`.
 
 EveryApp setzt das HTML ohne `baseUrl`, also ohne sichere Origin. Die Wake Lock API gibt es nur im Secure Context. Im EveryApp-WebView sollte deshalb das stumme Video greifen. Unter https oder localhost nimmt der Browser den Wake Lock.
 
