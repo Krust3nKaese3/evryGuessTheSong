@@ -163,6 +163,7 @@
       letter-spacing: 0.04em;
       box-shadow: 0 12px 0 #5c0010, 0 18px 28px rgba(0, 0, 0, 0.4);
       user-select: none;
+      touch-action: manipulation;
     }
     .buzzer:active { transform: translateY(8px); box-shadow: 0 4px 0 #5c0010; }
     .reveal-title { font-size: 34px; line-height: 1.15; margin: 0; overflow-wrap: anywhere; }
@@ -1091,10 +1092,10 @@
     let transportEpoch = 0;
     let activeSfx = null;
 
-    function beginTransportTurn() {
+    function beginTransportTurn(keepSfx) {
       transportEpoch += 1;
       state.holdingSfx = false;
-      stopSfx();
+      if (!keepSfx) stopSfx();
       return transportEpoch;
     }
 
@@ -1146,6 +1147,117 @@
           played.then(function () {}, function () { finish(); });
         }
       });
+    }
+
+    let audioCtx = null;
+    let buzzerGain = null;
+    let buzzerBuffer = null;
+    let buzzerSrcSeen = '';
+
+    function audioContext() {
+      if (audioCtx) return audioCtx;
+      const Ctx = window.AudioContext || window.webkitAudioContext;
+      if (!Ctx) return null;
+      audioCtx = new Ctx();
+      buzzerGain = audioCtx.createGain();
+      buzzerGain.gain.value = SFX_VOLUME;
+      buzzerGain.connect(audioCtx.destination);
+      return audioCtx;
+    }
+
+    function unlockBuzzer() {
+      const ctx = audioContext();
+      if (ctx && ctx.state === 'suspended') {
+        try { ctx.resume(); } catch (error) {}
+      }
+      const el = document.getElementById('sfx-buzzer');
+      if (!el || el.dataset.warm === '1') return;
+      el.dataset.warm = '1';
+      el.volume = 0;
+      const played = el.play();
+      const restore = () => {
+        try { el.pause(); } catch (error) {}
+        try { el.currentTime = 0; } catch (error) {}
+        el.volume = SFX_VOLUME;
+      };
+      if (played && typeof played.then === 'function') {
+        played.then(restore, function () {
+          el.volume = SFX_VOLUME;
+          el.dataset.warm = '';
+        });
+      } else restore();
+    }
+
+    function bytesFromDataUri(src) {
+      const comma = src.indexOf(',');
+      if (comma < 0 || !/;base64/i.test(src.slice(0, comma))) return null;
+      const binary = atob(src.slice(comma + 1));
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+      return bytes.buffer;
+    }
+
+    function decodeBuzzerFrom(src) {
+      const ctx = audioContext();
+      if (!ctx || !src) return;
+      if (src === buzzerSrcSeen) return;
+      buzzerSrcSeen = src;
+      buzzerBuffer = null;
+      const raw = src.indexOf('data:') === 0
+        ? Promise.resolve(bytesFromDataUri(src))
+        : fetch(src).then((res) => res.arrayBuffer());
+      raw.then((buffer) => {
+        if (!buffer || src !== buzzerSrcSeen) return null;
+        return ctx.decodeAudioData(buffer.slice(0));
+      }).then((decoded) => {
+        if (decoded && src === buzzerSrcSeen) buzzerBuffer = decoded;
+      }).catch(() => {
+        if (src === buzzerSrcSeen) buzzerSrcSeen = '';
+      });
+    }
+
+    function primeBuzzer() {
+      const el = document.getElementById('sfx-buzzer');
+      if (!el) return;
+      decodeBuzzerFrom(el.currentSrc || el.src || '');
+    }
+
+    function watchBuzzerSource() {
+      const el = document.getElementById('sfx-buzzer');
+      if (!el) return;
+      primeBuzzer();
+      el.addEventListener('loadeddata', primeBuzzer);
+      const observer = new MutationObserver(primeBuzzer);
+      observer.observe(el, { attributes: true, attributeFilter: ['src'] });
+    }
+
+    function playBuzzerImmediate() {
+      const ctx = audioContext();
+      if (ctx && ctx.state === 'suspended') {
+        try { ctx.resume(); } catch (error) {}
+      }
+      if (ctx && buzzerBuffer && buzzerGain) {
+        stopSfx();
+        buzzerGain.gain.value = SFX_VOLUME;
+        const node = ctx.createBufferSource();
+        node.buffer = buzzerBuffer;
+        node.connect(buzzerGain);
+        try { node.start(0); } catch (error) {
+          playSfx('buzzer');
+          return;
+        }
+        node.onended = () => {
+          if (activeSfx && activeSfx.node === node) activeSfx = null;
+        };
+        activeSfx = {
+          node: node,
+          cancel() {
+            try { node.onended = null; node.stop(0); } catch (error) {}
+          }
+        };
+        return;
+      }
+      playSfx('buzzer');
     }
 
     function volumeOf(raw) {
@@ -1426,32 +1538,40 @@
       });
     }
 
-    async function buzz() {
+    function buzz(fromKey) {
       const round = state.round;
       if (!round || state.phase !== 'playing' || round.lock || state.holdingSfx) return;
-      round.lock = true;
-      stopPoll();
-      state.resumeAfterReconnect = false;
       let pauseCall;
       try {
         pauseCall = requireApi().pause();
       } catch (error) {
         pauseCall = Promise.reject(error);
       }
-      const pauseSettled = pauseCall.then(() => {}, (error) => {
-        presentError(error);
-        paintBanners();
-      });
-      const epoch = beginTransportTurn();
+      playBuzzerImmediate();
+      round.lock = true;
+      stopPoll();
+      state.resumeAfterReconnect = false;
+      beginTransportTurn(true);
       state.phase = 'guess';
       state.guesserId = null;
       state.notice = '';
-      render();
       buzzHaptic();
-      enqueueTransport(() => pauseSettled);
-      enqueueTransport(async () => {
-        if (epoch !== transportEpoch) return;
-        await playSfx('buzzer');
+      const paintGuess = () => {
+        if (state.phase === 'guess') render();
+      };
+      if (fromKey) {
+        paintGuess();
+      } else {
+        // The finger is still down. Swapping the screen now would let the
+        // following click land on whatever button appears underneath.
+        const paintSoon = () => { setTimeout(paintGuess, 30); };
+        window.addEventListener('pointerup', paintSoon, { capture: true, once: true });
+        window.addEventListener('touchend', paintSoon, { capture: true, once: true });
+        setTimeout(paintGuess, 480);
+      }
+      pauseCall.then(() => {}, (error) => {
+        presentError(error);
+        paintBanners();
       });
     }
 
@@ -1835,7 +1955,7 @@
             <ol>
               <li>DJ auswählen und bestätigen.</li>
               <li>Song suchen und auf Los tippen. Er startet von vorne. Jeder Song nur einmal pro Spiel.</li>
-              <li>Bei „Stopp“ den roten Buzzer drücken. Der Song stoppt sofort, danach kommt der Buzzer.</li>
+              <li>Bei „Stopp“ den roten Buzzer drücken. Pause und Buzzer starten beim Auflegen des Fingers.</li>
               <li>Wer geraten hat (nicht der DJ), dann Ja oder Nein.</li>
               <li>Richtig: +2, Erfolgs-Ton, der Song blendet wieder ein, dann Auflösung.</li>
               <li>Falsch: −1, Fehler-Ton, danach läuft der Song sofort in normaler Lautstärke weiter.</li>
@@ -2488,7 +2608,10 @@
       if (action === 'recommendations') loadRecommendations();
       if (action === 'pick-track') pickTrack(button.dataset.uri);
       if (action === 'los') los();
-      if (action === 'buzz') buzz();
+      if (action === 'buzz') {
+        if (event.detail === 0) buzz(true);
+        return;
+      }
       if (action === 'resume') resumeTransport();
       if (action === 'retry-play') retryPlay();
       if (action === 'back-search') backToSearch();
@@ -2508,6 +2631,27 @@
     }
 
     function bind() {
+      let buzzStamp = 0;
+      const onBuzzDown = (event) => {
+        const button = event.target && event.target.closest && event.target.closest('[data-action="buzz"]');
+        if (!button || button.disabled) return;
+        if (event.type === 'pointerdown' && event.button > 0) return;
+        const now = performance.now();
+        if (now - buzzStamp < 50) return;
+        buzzStamp = now;
+        if (event.cancelable) event.preventDefault();
+        buzz();
+        requestAwake(true);
+      };
+      app.addEventListener('pointerdown', (event) => {
+        const button = event.target && event.target.closest && event.target.closest('[data-action="buzz"]');
+        if (!button) {
+          unlockBuzzer();
+          primeBuzzer();
+        }
+      }, true);
+      app.addEventListener('pointerdown', onBuzzDown);
+      app.addEventListener('touchstart', onBuzzDown, { passive: false });
       app.addEventListener('click', onClick);
       app.addEventListener('submit', (event) => {
         const form = event.target;
@@ -2579,6 +2723,7 @@
     let wakeMode = 'off';
 
     async function init() {
+      watchBuzzerSource();
       bindWakeVideo();
       bind();
       subscribe();
