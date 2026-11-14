@@ -1774,6 +1774,8 @@
     function cancelEnd() { state.confirmEnd = false; render(); }
 
     async function finishGame() {
+      wakeDismissed = true;
+      releaseAwake();
       beginTransportTurn();
       state.confirmEnd = false;
       stopPoll();
@@ -1796,6 +1798,8 @@
     }
 
     async function returnToLobby() {
+      wakeDismissed = true;
+      releaseAwake();
       beginTransportTurn();
       state.players.forEach((player) => { player.score = 0; });
       state.phase = 'setup';
@@ -2160,6 +2164,7 @@
       const view = views[state.phase] || renderSetup;
       app.innerHTML = view() + modalHtml();
       persistGame();
+      syncScreenWake(false);
     }
 
     function persistentStore() {
@@ -2559,6 +2564,15 @@
       else setWakeDebug('pending');
     }
 
+    function screenStayOn() {
+      return !wakeDismissed && state.phase !== 'final';
+    }
+
+    function syncScreenWake(fromGesture) {
+      if (screenStayOn()) requestAwake(Boolean(fromGesture));
+      else if (wakeWanted || screenLock || wakeMode !== 'off') releaseAwake();
+    }
+
     function bindWakeVideo() {
       const video = wakeVideoEl();
       if (!video || video.dataset.bound) return;
@@ -2577,13 +2591,15 @@
       const button = event.target.closest('[data-action]');
       if (!button || button.disabled) return;
       const action = button.dataset.action;
-      if (action === 'end-confirm' || action === 'home') releaseAwake();
-      else if (action === 'start' || inGame()) requestAwake(true);
-      if (action === 'remove-player') await removePlayer(Number(button.dataset.id));
-      if (action === 'start') {
-        await startGame();
-        if (!inGame()) releaseAwake();
+      if (action === 'end-confirm' || action === 'home') {
+        wakeDismissed = true;
+        releaseAwake();
+      } else if (state.phase !== 'final') {
+        wakeDismissed = false;
+        requestAwake(true);
       }
+      if (action === 'remove-player') await removePlayer(Number(button.dataset.id));
+      if (action === 'start') await startGame();
       if (action === 'reconnect') withBusy(reconnectInGame);
       if (action === 'refresh') withBusy(loadSpotifyStatus);
       if (action === 'login') withBusy(async () => { await requireClient(); await requireApi().login(); await loadSpotifyStatus(); state.info = 'Anmeldung abgeschlossen.'; });
@@ -2641,6 +2657,7 @@
         buzzStamp = now;
         if (event.cancelable) event.preventDefault();
         buzz();
+        wakeDismissed = false;
         requestAwake(true);
       };
       app.addEventListener('pointerdown', (event) => {
@@ -2648,6 +2665,14 @@
         if (!button) {
           unlockBuzzer();
           primeBuzzer();
+          if (state.phase !== 'final') {
+            const actionButton = event.target && event.target.closest && event.target.closest('[data-action]');
+            const action = actionButton && actionButton.dataset.action;
+            if (action !== 'home' && action !== 'end-confirm') {
+              wakeDismissed = false;
+              requestAwake(true);
+            }
+          }
         }
       }, true);
       app.addEventListener('pointerdown', onBuzzDown);
@@ -2657,11 +2682,20 @@
         const form = event.target;
         if (!form || !form.dataset) return;
         event.preventDefault();
-        if (inGame()) requestAwake(true);
+        if (state.phase !== 'final') {
+          wakeDismissed = false;
+          requestAwake(true);
+        }
         if (form.dataset.action === 'add-player') addPlayer();
         if (form.dataset.action === 'search') runSearch();
       });
       app.addEventListener('input', (event) => {
+        if (event.target.id === 'playerName' || event.target.id === 'searchQuery') {
+          if (state.phase !== 'final') {
+            wakeDismissed = false;
+            requestAwake(true);
+          }
+        }
         if (event.target.id === 'playerName') {
           state.draftName = event.target.value;
           lobbyDirty = true;
@@ -2714,12 +2748,11 @@
       }
       if (state.phase === 'playing' && state.round && !state.round.lock) startPoll();
       render();
-      if (inGame()) requestAwake(false);
-      else releaseAwake();
     }
 
     let screenLock = null;
     let wakeWanted = false;
+    let wakeDismissed = false;
     let wakeMode = 'off';
 
     async function init() {
@@ -2732,8 +2765,8 @@
         if (document.visibilityState === 'hidden') {
           persistGame();
           persistLobby();
-        } else if (inGame()) {
-          requestAwake(false);
+        } else {
+          syncScreenWake(false);
         }
       });
       try {
