@@ -97,11 +97,11 @@ Ab **Los** bis zur Auflösung (richtig, übersprungen oder nach dem Songende) ze
 
 ## Soundeffekte
 
-Drei kurze Dateien von Pixabay, kostenlose Lizenz, unter `assets/sounds/`:
+Drei kurze Dateien unter `assets/sounds/`. `correct.mp3` und `wrong.mp3` stammen von Pixabay (kostenlose Lizenz). Der Buzzer stammt von Mixkit, Credit und Lizenz stehen in `CREDITS.md`.
 
 | Datei | Wann | Quelle |
 | --- | --- | --- |
-| `buzzer.mp3` | nach dem harten Stopp | Buzzer 11 von floraphonic |
+| `buzzer.mp3` | nach dem harten Stopp | Game show wrong answer buzz von Mixkit (ID 950), siehe `CREDITS.md` |
 | `correct.mp3` | richtiger Tipp, danach blendet der Song ein | Correct von DRAGON-STUDIO |
 | `wrong.mp3` | falscher Tipp, danach sofort volle Lautstärke | Error/Mistake Sound Effect von Lesiakower |
 
